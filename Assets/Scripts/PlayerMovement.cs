@@ -19,6 +19,7 @@ public class PlayerControllerLoose : MonoBehaviour
 
     void Start()
     {
+        EnsureCombatSupport();
         rb = GetComponent<Rigidbody>();
         rb.freezeRotation = true;
         mouseAim = GetComponent<PlayerMouseAim>();
@@ -47,11 +48,6 @@ public class PlayerControllerLoose : MonoBehaviour
         bool isAimLocked = mouseAim != null && mouseAim.IsAimModifierPressed;
         Vector3 targetDirection = new Vector3(input.x, 0f, input.y).normalized;
 
-        if (isAimLocked)
-        {
-            targetDirection = Vector3.zero;
-        }
-
         // Smoothly interpolate current move direction
         moveDirection = Vector3.SmoothDamp(moveDirection, targetDirection, ref currentVelocity, movementSmooth);
 
@@ -69,6 +65,24 @@ public class PlayerControllerLoose : MonoBehaviour
         {
             Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
             rb.rotation = Quaternion.Slerp(rb.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+        }
+    }
+
+    private void EnsureCombatSupport()
+    {
+        if (GetComponent<PlayerMouseAim>() == null)
+        {
+            gameObject.AddComponent<PlayerMouseAim>();
+        }
+
+        if (GetComponent<PlayerWeaponPickup>() == null)
+        {
+            gameObject.AddComponent<PlayerWeaponPickup>();
+        }
+
+        if (GetComponent<PlayerCombat>() == null)
+        {
+            gameObject.AddComponent<PlayerCombat>();
         }
     }
 

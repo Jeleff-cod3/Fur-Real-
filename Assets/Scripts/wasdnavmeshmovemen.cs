@@ -28,6 +28,7 @@ public class NavMeshWASDMovement : MonoBehaviour
 
     private void Awake()
     {
+        EnsureCombatSupport();
         agent = GetComponent<NavMeshAgent>();
         rb = GetComponent<Rigidbody>();
         mouseAim = GetComponent<PlayerMouseAim>();
@@ -110,27 +111,27 @@ public class NavMeshWASDMovement : MonoBehaviour
         bool isAimLocked = mouseAim != null && mouseAim.IsAimModifierPressed;
         Vector3 inputDirection = GetInputDirection();
 
-        if (isAimLocked)
-        {
-            EnterIdleState();
-
-            if (mouseAim != null && mouseAim.TryGetAimDirection(out Vector3 aimDirection, false))
-            {
-                RotateTowards(aimDirection);
-            }
-
-            return;
-        }
-
         if (inputDirection.sqrMagnitude < 0.001f)
         {
             EnterIdleState();
+        }
+
+        if (inputDirection.sqrMagnitude >= 0.001f)
+        {
+            ExitIdleState();
+            agent.Move(inputDirection * moveSpeed * Time.deltaTime);
+        }
+
+        if (isAimLocked && mouseAim != null && mouseAim.TryGetAimDirection(out Vector3 aimDirection, false))
+        {
+            RotateTowards(aimDirection);
             return;
         }
 
-        ExitIdleState();
-        RotateTowards(inputDirection);
-        agent.Move(inputDirection * moveSpeed * Time.deltaTime);
+        if (inputDirection.sqrMagnitude >= 0.001f)
+        {
+            RotateTowards(inputDirection);
+        }
     }
 
     private Vector3 GetInputDirection()
@@ -296,5 +297,23 @@ public class NavMeshWASDMovement : MonoBehaviour
         transform.position = hit.position;
         agent.nextPosition = hit.position;
         agent.isStopped = false;
+    }
+
+    private void EnsureCombatSupport()
+    {
+        if (GetComponent<PlayerMouseAim>() == null)
+        {
+            gameObject.AddComponent<PlayerMouseAim>();
+        }
+
+        if (GetComponent<PlayerWeaponPickup>() == null)
+        {
+            gameObject.AddComponent<PlayerWeaponPickup>();
+        }
+
+        if (GetComponent<PlayerCombat>() == null)
+        {
+            gameObject.AddComponent<PlayerCombat>();
+        }
     }
 }

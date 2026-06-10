@@ -6,6 +6,7 @@ public class PlayerMouseAim : MonoBehaviour
     [Header("Aim Targeting")]
     [SerializeField] private LayerMask aimSurfaceLayers = Physics.DefaultRaycastLayers;
     [SerializeField] private float aimRayDistance = 1000f;
+    [SerializeField] private bool preferGroundPlaneForTopDown = true;
     [SerializeField] private bool useGroundPlaneFallback = true;
 
     public bool IsAimModifierPressed
@@ -59,6 +60,12 @@ public class PlayerMouseAim : MonoBehaviour
         }
 
         Ray aimRay = aimCamera.ScreenPointToRay(mouse.position.ReadValue());
+
+        if (preferGroundPlaneForTopDown && TryGetGroundPlanePoint(aimRay, out worldPoint))
+        {
+            return true;
+        }
+
         int surfaceMask = aimSurfaceLayers.value == 0
             ? Physics.DefaultRaycastLayers
             : aimSurfaceLayers.value;
@@ -98,14 +105,20 @@ public class PlayerMouseAim : MonoBehaviour
             return false;
         }
 
+        return TryGetGroundPlanePoint(aimRay, out worldPoint);
+    }
+
+    private bool TryGetGroundPlanePoint(Ray aimRay, out Vector3 worldPoint)
+    {
         Plane fallbackPlane = new Plane(Vector3.up, new Vector3(0f, transform.position.y, 0f));
 
-        if (!fallbackPlane.Raycast(aimRay, out float enterDistance))
+        if (fallbackPlane.Raycast(aimRay, out float enterDistance))
         {
-            return false;
+            worldPoint = aimRay.GetPoint(enterDistance);
+            return true;
         }
 
-        worldPoint = aimRay.GetPoint(enterDistance);
-        return true;
+        worldPoint = Vector3.zero;
+        return false;
     }
 }

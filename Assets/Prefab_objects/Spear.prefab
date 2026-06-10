@@ -229,6 +229,9 @@ MonoBehaviour:
   thrustForwardTime: 0.08
   thrustReturnTime: 0.18
   tipHitbox: {fileID: 8981256622647497942}
+  heldLocalPositionOffset: {x: 0.05, y: 0.18, z: 0.4}
+  heldTipDirectionLocal: {x: 0, y: -0.18, z: 1}
+  stabTipDirectionLocal: {x: 0, y: -0.32, z: 1}
   spearTip: {fileID: 3036736932429531921}
   throwSpeed: 18
   throwUpwardBoost: 4.5

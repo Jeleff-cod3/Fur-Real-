@@ -11,6 +11,7 @@ public class EnemyHealth : MonoBehaviour, IDamageable
     private MammothPersonality mammothPersonality;
 
     public event Action<int, int> HealthChanged;
+    public event Action<EnemyHealth> Died;
 
     public int CurrentHealth => currentHealth;
     public int MaxHealth => maxHealth;
@@ -94,6 +95,7 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         }
 
         hasDied = true;
+        Died?.Invoke(this);
         Debug.Log($"{gameObject.name} died.");
         Destroy(gameObject);
     }

@@ -5,7 +5,6 @@ public class SpearDamageHitbox : MonoBehaviour
 {
     [SerializeField] private PickupableWeapon weapon;
 
-    private readonly HashSet<EnemyHealth> damagedEnemies = new HashSet<EnemyHealth>();
     private Collider hitboxCollider;
     private bool canDamage;
 
@@ -25,9 +24,16 @@ public class SpearDamageHitbox : MonoBehaviour
         }
     }
 
+    private void Update()
+    {
+        if (canDamage)
+        {
+            ScanForDamage();
+        }
+    }
+
     public void StartDamageWindow()
     {
-        damagedEnemies.Clear();
         canDamage = true;
 
         if (hitboxCollider != null)
@@ -45,36 +51,61 @@ public class SpearDamageHitbox : MonoBehaviour
             hitboxCollider.enabled = false;
         }
 
-        damagedEnemies.Clear();
     }
 
     private void OnTriggerEnter(Collider other)
+    {
+        TryDamage(other);
+    }
+
+    private void OnTriggerStay(Collider other)
+    {
+        TryDamage(other);
+    }
+
+    private void TryDamage(Collider other)
     {
         if (!canDamage || weapon == null)
         {
             return;
         }
 
-        EnemyHealth enemyHealth = other.GetComponent<EnemyHealth>();
-
-        if (enemyHealth == null)
-        {
-            enemyHealth = other.GetComponentInParent<EnemyHealth>();
-        }
-
-        if (enemyHealth == null)
+        if (weapon.ShouldIgnoreCollider(other))
         {
             return;
         }
 
-        if (damagedEnemies.Contains(enemyHealth))
+        weapon.TryRegisterMeleeContact(other);
+    }
+
+    private void ScanForDamage()
+    {
+        if (!(hitboxCollider is SphereCollider sphereCollider))
         {
             return;
         }
 
-        damagedEnemies.Add(enemyHealth);
-        enemyHealth.TakeDamage(weapon.Damage);
+        Vector3 worldCenter = sphereCollider.transform.TransformPoint(sphereCollider.center);
+        float maxScale = Mathf.Max(
+            Mathf.Abs(sphereCollider.transform.lossyScale.x),
+            Mathf.Abs(sphereCollider.transform.lossyScale.y),
+            Mathf.Abs(sphereCollider.transform.lossyScale.z)
+        );
+        float worldRadius = Mathf.Max(
+            sphereCollider.radius * maxScale,
+            weapon != null ? weapon.TipCastRadius : 0f
+        );
 
-        Debug.Log($"Spear tip hit {enemyHealth.name} for {weapon.Damage} damage.");
+        Collider[] overlaps = Physics.OverlapSphere(
+            worldCenter,
+            worldRadius,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Ignore
+        );
+
+        foreach (Collider overlap in overlaps)
+        {
+            TryDamage(overlap);
+        }
     }
 }

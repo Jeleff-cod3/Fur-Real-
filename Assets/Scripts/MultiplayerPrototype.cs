@@ -2321,6 +2321,14 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private Vector3 ResolveRuntimeSpawnAnchor()
     {
+        WorldChunkRenderer chunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
+        if (chunkRenderer != null)
+        {
+            Vector3 arenaAnchor = chunkRenderer.GetArenaCenterWorldPosition(SpawnHeightOffset);
+            NetLog($"Using arena spawn anchor from WorldChunkRenderer at {arenaAnchor}.");
+            return arenaAnchor;
+        }
+
         GameObject[] roots = FindObjectsByType<GameObject>(FindObjectsInactive.Exclude);
         foreach (GameObject root in roots)
         {
@@ -2512,7 +2520,7 @@ public sealed class LocalCubeController : MonoBehaviour
     [SerializeField] private float aimRotationSpeed = 18f;
 
     [Header("Combat Setup")]
-    [SerializeField] private Vector3 weaponHolderLocalPosition = new Vector3(0.6f, 0.3f, 0.8f);
+    [SerializeField] private Vector3 weaponHolderLocalPosition = new Vector3(0.24f, 0.16f, 0.3f);
     [SerializeField] private Vector3 attackPointLocalPosition = new Vector3(0f, 0.5f, 1.4f);
     [SerializeField] private float pickupRangeRadius = 1.5f;
 

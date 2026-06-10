@@ -545,20 +545,8 @@ public class WorldChunkRenderer : MonoBehaviour
             return;
         }
 
-        Vector2Int center = worldData.arenaCenter;
-
-        int testX = center.x + arenaRadius + transitionDistance + 150;
-        int testZ = center.y;
-
-        float height = worldData.GetHeight(testX, testZ);
-
-        player.position = new Vector3(
-            testX,
-            height + 1f,
-            testZ
-        );
-
-        Debug.Log($"Player placed in RESOURCE AREA: {player.position}, terrain height={height}");
+        player.position = GetArenaCenterWorldPosition(1f);
+        Debug.Log($"Player placed in ARENA AREA: {player.position}");
     }
 
     private void SnapPlayerToNavMesh()
@@ -969,5 +957,79 @@ public class WorldChunkRenderer : MonoBehaviour
         );
 
         caveInstance.name = "Cave Entrance";
+    }
+
+    public Vector3 GetArenaCenterWorldPosition(float heightOffset = 0.1f)
+    {
+        if (worldData == null)
+        {
+            return transform.position + Vector3.up * heightOffset;
+        }
+
+        Vector2Int center = worldData.arenaCenter;
+        float height = worldData.GetHeight(center.x, center.y);
+        return new Vector3(center.x, height + heightOffset, center.y);
+    }
+
+    public bool TryGetRandomSpawnPosition(
+        TerrainZone zone,
+        out Vector3 spawnPosition,
+        float heightOffset = 0.75f,
+        int attempts = 60)
+    {
+        if (worldData == null)
+        {
+            spawnPosition = Vector3.zero;
+            return false;
+        }
+
+        for (int i = 0; i < attempts; i++)
+        {
+            int x = Random.Range(0, worldData.size + 1);
+            int z = Random.Range(0, worldData.size + 1);
+
+            if (worldData.GetZone(x, z) != zone)
+            {
+                continue;
+            }
+
+            spawnPosition = new Vector3(x, worldData.GetHeight(x, z) + heightOffset, z);
+            return true;
+        }
+
+        spawnPosition = Vector3.zero;
+        return false;
+    }
+
+    public bool TryGetNearbySpawnPosition(
+        Vector3 nearPosition,
+        TerrainZone zone,
+        float radius,
+        out Vector3 spawnPosition,
+        float heightOffset = 0.75f,
+        int attempts = 40)
+    {
+        if (worldData == null)
+        {
+            spawnPosition = Vector3.zero;
+            return false;
+        }
+
+        for (int i = 0; i < attempts; i++)
+        {
+            Vector2 offset = Random.insideUnitCircle * radius;
+            int x = Mathf.RoundToInt(nearPosition.x + offset.x);
+            int z = Mathf.RoundToInt(nearPosition.z + offset.y);
+
+            if (!worldData.IsInsideMap(x, z) || worldData.GetZone(x, z) != zone)
+            {
+                continue;
+            }
+
+            spawnPosition = new Vector3(x, worldData.GetHeight(x, z) + heightOffset, z);
+            return true;
+        }
+
+        return TryGetRandomSpawnPosition(zone, out spawnPosition, heightOffset, attempts);
     }
 }
