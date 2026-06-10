@@ -279,6 +279,7 @@ Rigidbody:
   m_Constraints: 0
   m_CollisionDetection: 0
 <<<<<<< HEAD
+<<<<<<< HEAD
 --- !u!1 &230671569
 GameObject:
   m_ObjectHideFlags: 0
@@ -455,6 +456,8 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+=======
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
 >>>>>>> 4e613ad (woreking mammoth and shit)
 --- !u!1 &550010556
@@ -1688,8 +1691,12 @@ SceneRoots:
   - {fileID: 1630489984}
   - {fileID: 133414973}
 <<<<<<< HEAD
+<<<<<<< HEAD
   - {fileID: 230671575}
   - {fileID: 1900010002}
+=======
+  - {fileID: 2115401101}
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
   - {fileID: 2115401101}
 >>>>>>> 4e613ad (woreking mammoth and shit)

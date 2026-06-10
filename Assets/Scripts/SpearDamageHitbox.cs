@@ -6,6 +6,10 @@ public class SpearDamageHitbox : MonoBehaviour
     [SerializeField] private PickupableWeapon weapon;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+    private readonly HashSet<Component> damagedTargets = new HashSet<Component>();
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
     private readonly HashSet<Component> damagedTargets = new HashSet<Component>();
 >>>>>>> 4e613ad (woreking mammoth and shit)
@@ -39,6 +43,10 @@ public class SpearDamageHitbox : MonoBehaviour
     public void StartDamageWindow()
     {
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+        damagedTargets.Clear();
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
         damagedTargets.Clear();
 >>>>>>> 4e613ad (woreking mammoth and shit)
@@ -60,6 +68,10 @@ public class SpearDamageHitbox : MonoBehaviour
         }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+        damagedTargets.Clear();
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
         damagedTargets.Clear();
 >>>>>>> 4e613ad (woreking mammoth and shit)
@@ -83,8 +95,11 @@ public class SpearDamageHitbox : MonoBehaviour
         }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
         if (weapon.ShouldIgnoreCollider(other))
 =======
+=======
+>>>>>>> 4e613ad (woreking mammoth and shit)
         Component damageableComponent = other.GetComponent(typeof(IDamageable)) as Component;
 
         if (damageableComponent == null)
@@ -93,11 +108,15 @@ public class SpearDamageHitbox : MonoBehaviour
         }
 
         if (damageableComponent == null || damageableComponent.transform.IsChildOf(weapon.transform))
+<<<<<<< HEAD
+>>>>>>> 4e613ad (woreking mammoth and shit)
+=======
 >>>>>>> 4e613ad (woreking mammoth and shit)
         {
             return;
         }
 
+<<<<<<< HEAD
 <<<<<<< HEAD
         weapon.TryRegisterMeleeContact(other);
     }
@@ -132,6 +151,23 @@ public class SpearDamageHitbox : MonoBehaviour
             TryDamage(overlap);
         }
     }
+=======
+        if (damagedTargets.Contains(damageableComponent))
+        {
+            return;
+        }
+
+        if (!(damageableComponent is IDamageable damageable))
+        {
+            return;
+        }
+
+        damagedTargets.Add(damageableComponent);
+        damageable.TakeDamage(weapon.Damage);
+
+        Debug.Log($"Spear tip hit {damageableComponent.name} for {weapon.Damage} damage.");
+    }
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
         if (damagedTargets.Contains(damageableComponent))
         {

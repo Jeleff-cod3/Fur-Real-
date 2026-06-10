@@ -25,11 +25,14 @@ public class PickupableWeapon : MonoBehaviour
     [SerializeField] private SpearDamageHitbox tipHitbox;
     [SerializeField] private float meleeHitRadius = 0.3f;
     [SerializeField] private LayerMask meleeHitLayers = ~0;
+<<<<<<< HEAD
 
     [Header("Held Pose")]
     [SerializeField] private Vector3 heldLocalPositionOffset = new Vector3(0.45f, 0.18f, 0.4f);
     [SerializeField] private Vector3 heldTipDirectionLocal = new Vector3(0f, -0.18f, 1f);
     [SerializeField] private Vector3 stabTipDirectionLocal = new Vector3(0f, -0.32f, 1f);
+=======
+>>>>>>> 4e613ad (woreking mammoth and shit)
 
     [Header("Throw Physics")]
     [SerializeField] private Transform spearTip;
@@ -63,10 +66,14 @@ public class PickupableWeapon : MonoBehaviour
     private Vector3 previousTipPosition;
     private float thrownTimer;
 <<<<<<< HEAD
+<<<<<<< HEAD
     private bool meleeImpactRegistered;
     private bool meleeShouldStick;
     private Collider meleeImpactCollider;
     private Vector3 meleeImpactPoint;
+=======
+    private readonly System.Collections.Generic.HashSet<Component> damagedMeleeTargets = new System.Collections.Generic.HashSet<Component>();
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
     private readonly System.Collections.Generic.HashSet<Component> damagedMeleeTargets = new System.Collections.Generic.HashSet<Component>();
 >>>>>>> 4e613ad (woreking mammoth and shit)
@@ -201,6 +208,7 @@ public class PickupableWeapon : MonoBehaviour
             float t = Mathf.Clamp01(timer / thrustForwardTime);
             transform.localPosition = Vector3.Lerp(startPosition, endPosition, t);
 <<<<<<< HEAD
+<<<<<<< HEAD
             transform.localRotation = Quaternion.Slerp(heldLocalRotation, endRotation, t);
             TrySweepForMeleeContact(previousTipPosition, spearTip != null ? spearTip.position : transform.position);
             previousTipPosition = spearTip != null ? spearTip.position : transform.position;
@@ -211,6 +219,9 @@ public class PickupableWeapon : MonoBehaviour
                 break;
             }
 
+=======
+            TryApplyFallbackMeleeDamage();
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
             TryApplyFallbackMeleeDamage();
 >>>>>>> 4e613ad (woreking mammoth and shit)
@@ -239,7 +250,11 @@ public class PickupableWeapon : MonoBehaviour
             float t = Mathf.Clamp01(timer / thrustReturnTime);
             transform.localPosition = Vector3.Lerp(endPosition, startPosition, t);
 <<<<<<< HEAD
+<<<<<<< HEAD
             transform.localRotation = Quaternion.Slerp(endRotation, heldLocalRotation, t);
+=======
+            TryApplyFallbackMeleeDamage();
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
             TryApplyFallbackMeleeDamage();
 >>>>>>> 4e613ad (woreking mammoth and shit)
@@ -252,6 +267,86 @@ public class PickupableWeapon : MonoBehaviour
         StopTipDamage();
         attackRoutine = null;
         ResetMeleeImpactState();
+    }
+
+    private void TryApplyFallbackMeleeDamage()
+    {
+        if (tipHitbox != null || spearTip == null)
+        {
+            return;
+        }
+
+        Vector3 currentTipPosition = spearTip.position;
+        Vector3 sweep = currentTipPosition - previousTipPosition;
+        float distance = sweep.magnitude;
+        int hitMask = meleeHitLayers.value != 0 ? meleeHitLayers.value : Physics.DefaultRaycastLayers;
+
+        if (distance <= 0.001f)
+        {
+            Collider[] overlaps = Physics.OverlapSphere(
+                currentTipPosition,
+                meleeHitRadius,
+                hitMask,
+                QueryTriggerInteraction.Ignore
+            );
+
+            foreach (Collider overlap in overlaps)
+            {
+                TryDamageTarget(overlap);
+            }
+        }
+        else
+        {
+            RaycastHit[] hits = Physics.SphereCastAll(
+                previousTipPosition,
+                meleeHitRadius,
+                sweep.normalized,
+                distance,
+                hitMask,
+                QueryTriggerInteraction.Ignore
+            );
+
+            foreach (RaycastHit hit in hits)
+            {
+                TryDamageTarget(hit.collider);
+            }
+        }
+
+        previousTipPosition = currentTipPosition;
+    }
+
+    private void TryDamageTarget(Collider targetCollider)
+    {
+        if (targetCollider == null)
+        {
+            return;
+        }
+
+        Component damageableComponent = targetCollider.GetComponent(typeof(IDamageable)) as Component;
+
+        if (damageableComponent == null)
+        {
+            damageableComponent = targetCollider.GetComponentInParent(typeof(IDamageable)) as Component;
+        }
+
+        if (damageableComponent == null || damageableComponent.transform.IsChildOf(transform))
+        {
+            return;
+        }
+
+        if (!(damageableComponent is IDamageable damageable))
+        {
+            return;
+        }
+
+        if (damagedMeleeTargets.Contains(damageableComponent))
+        {
+            return;
+        }
+
+        damagedMeleeTargets.Add(damageableComponent);
+        damageable.TakeDamage(damage);
+        Debug.Log($"Fallback melee hit {damageableComponent.name} for {damage} damage.");
     }
 
     private void TryApplyFallbackMeleeDamage()
@@ -658,6 +753,7 @@ public class PickupableWeapon : MonoBehaviour
         return (mask.value & (1 << layer)) != 0;
     }
 <<<<<<< HEAD
+<<<<<<< HEAD
 
     public bool ShouldIgnoreCollider(Collider hitCollider)
     {
@@ -975,6 +1071,8 @@ public class PickupableWeapon : MonoBehaviour
             }
         }
     }
+=======
+>>>>>>> 4e613ad (woreking mammoth and shit)
 =======
 >>>>>>> 4e613ad (woreking mammoth and shit)
 }
