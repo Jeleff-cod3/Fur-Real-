@@ -5,6 +5,10 @@ public class SpearDamageHitbox : MonoBehaviour
 {
     [SerializeField] private PickupableWeapon weapon;
 
+<<<<<<< HEAD
+=======
+    private readonly HashSet<Component> damagedTargets = new HashSet<Component>();
+>>>>>>> 4e613ad (woreking mammoth and shit)
     private Collider hitboxCollider;
     private bool canDamage;
 
@@ -34,6 +38,10 @@ public class SpearDamageHitbox : MonoBehaviour
 
     public void StartDamageWindow()
     {
+<<<<<<< HEAD
+=======
+        damagedTargets.Clear();
+>>>>>>> 4e613ad (woreking mammoth and shit)
         canDamage = true;
 
         if (hitboxCollider != null)
@@ -51,6 +59,10 @@ public class SpearDamageHitbox : MonoBehaviour
             hitboxCollider.enabled = false;
         }
 
+<<<<<<< HEAD
+=======
+        damagedTargets.Clear();
+>>>>>>> 4e613ad (woreking mammoth and shit)
     }
 
     private void OnTriggerEnter(Collider other)
@@ -70,11 +82,23 @@ public class SpearDamageHitbox : MonoBehaviour
             return;
         }
 
+<<<<<<< HEAD
         if (weapon.ShouldIgnoreCollider(other))
+=======
+        Component damageableComponent = other.GetComponent(typeof(IDamageable)) as Component;
+
+        if (damageableComponent == null)
+        {
+            damageableComponent = other.GetComponentInParent(typeof(IDamageable)) as Component;
+        }
+
+        if (damageableComponent == null || damageableComponent.transform.IsChildOf(weapon.transform))
+>>>>>>> 4e613ad (woreking mammoth and shit)
         {
             return;
         }
 
+<<<<<<< HEAD
         weapon.TryRegisterMeleeContact(other);
     }
 
@@ -108,4 +132,21 @@ public class SpearDamageHitbox : MonoBehaviour
             TryDamage(overlap);
         }
     }
+=======
+        if (damagedTargets.Contains(damageableComponent))
+        {
+            return;
+        }
+
+        if (!(damageableComponent is IDamageable damageable))
+        {
+            return;
+        }
+
+        damagedTargets.Add(damageableComponent);
+        damageable.TakeDamage(weapon.Damage);
+
+        Debug.Log($"Spear tip hit {damageableComponent.name} for {weapon.Damage} damage.");
+    }
+>>>>>>> 4e613ad (woreking mammoth and shit)
 }
