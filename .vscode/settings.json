@@ -1,0 +1,4 @@
+{
+    "dotnet.preferCSharpExtension": true,
+    "animeCompanion.chat.provider": "copilot"
+}
