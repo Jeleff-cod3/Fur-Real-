@@ -1,13 +1,24 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class MammothSpawner : MonoBehaviour
 {
+    [Header("Prefab")]
     [SerializeField] private GameObject mammothPrefab;
-    [SerializeField] private float spawnHeightOffset = 0.75f;
+
+    [Header("Respawn")]
     [SerializeField] private float respawnDelaySeconds = 2f;
     [SerializeField] private float nearbyRespawnRadius = 45f;
-    [SerializeField] private bool useExistingSceneMammothAsInitialSpawn = true;
+
+    [Header("Runtime World / NavMesh")]
+    [SerializeField] private TerrainZone spawnZone = TerrainZone.Arena;
+    [SerializeField] private float navMeshSampleRadius = 40f;
+    [SerializeField] private float worldReadyTimeout = 12f;
+    [SerializeField] private int spawnAttempts = 100;
+
+    [Header("Scene Debug")]
+    [SerializeField] private bool useExistingSceneMammothAsInitialSpawn = false;
 
     private WorldChunkRenderer worldChunkRenderer;
     private EnemyHealth currentMammoth;
@@ -15,15 +26,43 @@ public class MammothSpawner : MonoBehaviour
 
     private IEnumerator Start()
     {
-        yield return null;
+        yield return WaitForWorldAndNavMesh();
 
-        worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
         PrepareTemplateAndInitialMammoth();
 
         if (currentMammoth == null)
         {
             SpawnMammoth(null);
         }
+    }
+
+    private IEnumerator WaitForWorldAndNavMesh()
+    {
+        float deadline = Time.time + worldReadyTimeout;
+
+        while (worldChunkRenderer == null && Time.time <= deadline)
+        {
+            worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
+            yield return null;
+        }
+
+        if (worldChunkRenderer == null)
+        {
+            Debug.LogWarning("MammothSpawner: WorldChunkRenderer was not found.");
+            yield break;
+        }
+
+        while (Time.time <= deadline)
+        {
+            if (TryFindAnyValidNavMeshPoint(out _))
+            {
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        Debug.LogWarning("MammothSpawner: runtime NavMesh was not ready before timeout.");
     }
 
     private void PrepareTemplateAndInitialMammoth()
@@ -38,29 +77,35 @@ public class MammothSpawner : MonoBehaviour
         {
             mammothTemplate = Instantiate(sceneMammoth.gameObject, transform);
             mammothTemplate.name = "MammothTemplate";
+
             MammothSpawner nestedSpawner = mammothTemplate.GetComponent<MammothSpawner>();
+
             if (nestedSpawner != null)
             {
                 Destroy(nestedSpawner);
             }
+
             mammothTemplate.SetActive(false);
         }
 
         if (useExistingSceneMammothAsInitialSpawn && sceneMammoth != null)
         {
             PositionMammothAtSpawn(sceneMammoth, null);
-            currentMammoth = sceneMammoth;
-            RegisterCurrentMammoth(currentMammoth);
+            RegisterCurrentMammoth(sceneMammoth);
         }
     }
 
     private EnemyHealth FindSceneMammoth()
     {
-        EnemyHealth[] enemies = FindObjectsByType<EnemyHealth>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        EnemyHealth[] enemies = FindObjectsByType<EnemyHealth>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None
+        );
 
         foreach (EnemyHealth enemy in enemies)
         {
-            if (enemy != null && enemy.gameObject.name.IndexOf("Mammoth", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (enemy != null &&
+                enemy.gameObject.name.IndexOf("Mammoth", System.StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 return enemy;
             }
@@ -89,7 +134,8 @@ public class MammothSpawner : MonoBehaviour
         }
 
         currentMammoth = null;
-        Vector3 nearPosition = mammoth != null ? mammoth.transform.position : Vector3.zero;
+
+        Vector3 nearPosition = mammoth != null ? mammoth.transform.position : transform.position;
         StartCoroutine(RespawnMammothCoroutine(nearPosition));
     }
 
@@ -100,6 +146,7 @@ public class MammothSpawner : MonoBehaviour
             yield return new WaitForSeconds(respawnDelaySeconds);
         }
 
+        yield return WaitForWorldAndNavMesh();
         SpawnMammoth(nearPosition);
     }
 
@@ -107,20 +154,21 @@ public class MammothSpawner : MonoBehaviour
     {
         if (mammothTemplate == null)
         {
-            Debug.LogWarning("MammothSpawner is missing a mammoth template or prefab.");
+            Debug.LogWarning("MammothSpawner: missing mammoth prefab/template.");
             return;
         }
 
-        if (!TryResolveSpawnPosition(nearPosition, out Vector3 spawnPosition))
+        if (!TryResolveNavMeshSpawnPosition(nearPosition, out Vector3 spawnPosition))
         {
-            Debug.LogWarning("MammothSpawner could not resolve a spawn position.");
+            Debug.LogWarning("MammothSpawner: could not find valid NavMesh spawn position.");
             return;
         }
 
-        Quaternion spawnRotation = Quaternion.identity;
-        GameObject mammothObject = Instantiate(mammothTemplate, spawnPosition, spawnRotation);
+        GameObject mammothObject = Instantiate(mammothTemplate, spawnPosition, Quaternion.identity);
         mammothObject.name = "Mammoth";
         mammothObject.SetActive(true);
+
+        ConfigureSpawnedMammoth(mammothObject, spawnPosition);
 
         EnemyHealth mammothHealth = mammothObject.GetComponent<EnemyHealth>();
         RegisterCurrentMammoth(mammothHealth);
@@ -133,36 +181,119 @@ public class MammothSpawner : MonoBehaviour
             return;
         }
 
-        if (TryResolveSpawnPosition(nearPosition, out Vector3 spawnPosition))
+        if (!TryResolveNavMeshSpawnPosition(nearPosition, out Vector3 spawnPosition))
         {
-            mammoth.transform.SetPositionAndRotation(spawnPosition, Quaternion.identity);
+            return;
+        }
+
+        mammoth.transform.SetPositionAndRotation(spawnPosition, Quaternion.identity);
+        ConfigureSpawnedMammoth(mammoth.gameObject, spawnPosition);
+    }
+
+    private void ConfigureSpawnedMammoth(GameObject mammothObject, Vector3 spawnPosition)
+    {
+        Rigidbody rb = mammothObject.GetComponent<Rigidbody>();
+
+        if (rb != null)
+        {
+            rb.useGravity = false;
+            rb.isKinematic = true;
+            rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+        }
+
+        NavMeshAgent agent = mammothObject.GetComponent<NavMeshAgent>();
+
+        if (agent == null)
+        {
+            Debug.LogWarning("MammothSpawner: spawned mammoth has no NavMeshAgent.");
+            return;
+        }
+
+        agent.enabled = true;
+        agent.baseOffset = 0f;
+
+        if (NavMesh.SamplePosition(spawnPosition, out NavMeshHit hit, navMeshSampleRadius, NavMesh.AllAreas))
+        {
+            mammothObject.transform.position = hit.position;
+            agent.Warp(hit.position);
+            Debug.Log($"MammothSpawner: mammoth spawned on NavMesh at {hit.position}");
+        }
+        else
+        {
+            Debug.LogWarning($"MammothSpawner: failed to warp mammoth to NavMesh near {spawnPosition}");
         }
     }
 
-    private bool TryResolveSpawnPosition(Vector3? nearPosition, out Vector3 spawnPosition)
+    private bool TryResolveNavMeshSpawnPosition(Vector3? nearPosition, out Vector3 spawnPosition)
     {
-        if (worldChunkRenderer != null)
+        spawnPosition = Vector3.zero;
+
+        if (worldChunkRenderer == null)
         {
-            bool found = nearPosition.HasValue
+            worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
+        }
+
+        if (worldChunkRenderer == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < spawnAttempts; i++)
+        {
+            Vector3 basePosition;
+
+            bool gotBasePosition = nearPosition.HasValue
                 ? worldChunkRenderer.TryGetNearbySpawnPosition(
                     nearPosition.Value,
-                    TerrainZone.Arena,
+                    spawnZone,
                     nearbyRespawnRadius,
-                    out spawnPosition,
-                    spawnHeightOffset)
+                    out basePosition,
+                    0f
+                )
                 : worldChunkRenderer.TryGetRandomSpawnPosition(
-                    TerrainZone.Arena,
-                    out spawnPosition,
-                    spawnHeightOffset);
+                    spawnZone,
+                    out basePosition,
+                    0f
+                );
 
-            if (found)
+            if (!gotBasePosition)
             {
+                continue;
+            }
+
+            if (NavMesh.SamplePosition(basePosition, out NavMeshHit hit, navMeshSampleRadius, NavMesh.AllAreas))
+            {
+                spawnPosition = hit.position;
                 return true;
             }
         }
 
-        spawnPosition = nearPosition ?? transform.position;
-        spawnPosition.y += spawnHeightOffset;
-        return true;
+        return false;
+    }
+
+    private bool TryFindAnyValidNavMeshPoint(out Vector3 point)
+    {
+        point = Vector3.zero;
+
+        if (worldChunkRenderer == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < 20; i++)
+        {
+            if (!worldChunkRenderer.TryGetRandomSpawnPosition(spawnZone, out Vector3 basePosition, 0f))
+            {
+                continue;
+            }
+
+            if (NavMesh.SamplePosition(basePosition, out NavMeshHit hit, navMeshSampleRadius, NavMesh.AllAreas))
+            {
+                point = hit.position;
+                return true;
+            }
+        }
+
+        return false;
     }
 }

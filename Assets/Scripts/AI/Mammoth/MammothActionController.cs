@@ -17,6 +17,11 @@ public class MammothActionController : MonoBehaviour
 
     public void Execute(MammothActionType action)
     {
+        if (movement == null)
+        {
+            return;
+        }
+
         Transform target = senses != null ? senses.Target : null;
 
         if (state != null && !state.CanStartNewAction())
@@ -28,48 +33,48 @@ public class MammothActionController : MonoBehaviour
         {
             case MammothActionType.Idle:
                 movement.Stop();
-                state.SetAction(MammothActionType.Idle);
+                state?.SetAction(MammothActionType.Idle);
                 break;
 
             case MammothActionType.Roam:
                 movement.Roam();
-                state.SetAction(MammothActionType.Roam);
+                state?.SetAction(MammothActionType.Roam);
                 break;
 
             case MammothActionType.ChasePlayer:
                 movement.Chase(target);
-                state.SetAction(MammothActionType.ChasePlayer);
+                state?.SetAction(MammothActionType.ChasePlayer);
                 break;
 
             case MammothActionType.RunAway:
                 movement.RunAwayFrom(target);
-                state.SetAction(MammothActionType.RunAway);
+                state?.SetAction(MammothActionType.RunAway);
                 break;
 
             case MammothActionType.Charge:
                 movement.ChargeToward(target);
-                combat.StartChargeDamageWindow(target);
+                combat?.StartChargeDamageWindow(target);
                 break;
 
             case MammothActionType.NormalAttack:
                 movement.Stop();
                 movement.FaceTarget(target);
-                combat.StartNormalAttack(target);
+                combat?.StartNormalAttack(target);
                 break;
 
             case MammothActionType.Stomp:
                 movement.Stop();
-                combat.StartStomp(target);
+                combat?.StartStomp(target);
                 break;
 
             case MammothActionType.TwistAttack:
                 movement.Stop();
-                combat.StartTwistAttack(target);
+                combat?.StartTwistAttack(target);
                 break;
 
             case MammothActionType.Recover:
                 movement.Stop();
-                state.SetAction(MammothActionType.Recover);
+                state?.SetAction(MammothActionType.Recover);
                 break;
         }
     }

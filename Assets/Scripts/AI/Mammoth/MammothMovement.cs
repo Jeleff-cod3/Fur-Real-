@@ -20,10 +20,17 @@ public class MammothMovement : MonoBehaviour
     [Header("Charge")]
     [SerializeField] private float chargeDistance = 12f;
 
+    [Header("NavMesh Recovery")]
+    [SerializeField] private float navMeshRecoveryRadius = 80f;
+    [SerializeField] private float destinationSampleRadius = 10f;
+
     private NavMeshAgent agent;
     private Vector3 spawnPosition;
 
     public bool HasReachedDestination =>
+        agent != null &&
+        agent.enabled &&
+        agent.isOnNavMesh &&
         !agent.pathPending &&
         agent.remainingDistance <= agent.stoppingDistance + 0.2f;
 
@@ -33,9 +40,14 @@ public class MammothMovement : MonoBehaviour
         spawnPosition = transform.position;
     }
 
+    private void Start()
+    {
+        TryPlaceOnNavMesh();
+    }
+
     public void Stop()
     {
-        if (!agent.enabled)
+        if (!IsAgentReady())
         {
             return;
         }
@@ -46,19 +58,24 @@ public class MammothMovement : MonoBehaviour
 
     public void Chase(Transform target)
     {
-        if (target == null || !agent.enabled)
+        if (target == null || !IsAgentReady())
+        {
+            return;
+        }
+
+        if (!TryFindNavMeshPosition(target.position, destinationSampleRadius, out Vector3 targetPosition))
         {
             return;
         }
 
         agent.speed = chaseSpeed;
         agent.isStopped = false;
-        agent.SetDestination(target.position);
+        agent.SetDestination(targetPosition);
     }
 
     public void RunAwayFrom(Transform threat)
     {
-        if (threat == null || !agent.enabled)
+        if (threat == null || !IsAgentReady())
         {
             return;
         }
@@ -83,7 +100,7 @@ public class MammothMovement : MonoBehaviour
 
     public void Roam()
     {
-        if (!agent.enabled)
+        if (!IsAgentReady())
         {
             return;
         }
@@ -101,7 +118,7 @@ public class MammothMovement : MonoBehaviour
 
     public void ChargeToward(Transform target)
     {
-        if (target == null || !agent.enabled)
+        if (target == null || !IsAgentReady())
         {
             return;
         }
@@ -144,6 +161,45 @@ public class MammothMovement : MonoBehaviour
             Quaternion.LookRotation(direction.normalized),
             Time.deltaTime * 8f
         );
+    }
+
+    private bool IsAgentReady()
+    {
+        if (agent == null)
+        {
+            return false;
+        }
+
+        if (!agent.enabled)
+        {
+            return false;
+        }
+
+        if (agent.isOnNavMesh)
+        {
+            return true;
+        }
+
+        return TryPlaceOnNavMesh();
+    }
+
+    private bool TryPlaceOnNavMesh()
+    {
+        if (agent == null || !agent.enabled)
+        {
+            return false;
+        }
+
+        if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, navMeshRecoveryRadius, NavMesh.AllAreas))
+        {
+            transform.position = hit.position;
+            agent.Warp(hit.position);
+            spawnPosition = hit.position;
+            return true;
+        }
+
+        Debug.LogWarning($"{gameObject.name}: could not find NavMesh near {transform.position}.");
+        return false;
     }
 
     private bool TryFindNavMeshPosition(Vector3 position, float radius, out Vector3 navPosition)

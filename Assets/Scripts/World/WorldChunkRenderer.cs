@@ -85,6 +85,8 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private WorldData worldData;
 
+    public bool IsNavMeshReady { get; private set; }
+
     private readonly Dictionary<Vector2Int, GameObject> activeChunks =
         new Dictionary<Vector2Int, GameObject>();
 
@@ -231,18 +233,35 @@ public class WorldChunkRenderer : MonoBehaviour
 
     private void BuildWorldNavMesh()
     {
+        IsNavMeshReady = false;
+
         if (!buildNavMeshAtRuntime)
         {
+            IsNavMeshReady = true;
             return;
         }
 
         if (navMeshSurface == null)
         {
-            Debug.LogWarning("NavMeshSurface is missing.");
-            return;
+            navMeshSurface = GetComponent<NavMeshSurface>();
         }
 
+        if (navMeshSurface == null)
+        {
+            navMeshSurface = gameObject.AddComponent<NavMeshSurface>();
+        }
+
+        int groundLayer = LayerMask.NameToLayer(groundLayerName);
+        int groundMask = groundLayer >= 0 ? 1 << groundLayer : Physics.DefaultRaycastLayers;
+
+        navMeshSurface.collectObjects = CollectObjects.Children;
+        navMeshSurface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+        navMeshSurface.layerMask = groundMask;
+        navMeshSurface.defaultArea = 0;
+
         navMeshSurface.BuildNavMesh();
+
+        IsNavMeshReady = true;
 
         Debug.Log("Runtime NavMesh built for generated world.");
     }
@@ -1032,4 +1051,83 @@ public class WorldChunkRenderer : MonoBehaviour
 
         return TryGetRandomSpawnPosition(zone, out spawnPosition, heightOffset, attempts);
     }
+
+    public bool TryGetRandomNavMeshSpawnPosition(
+        TerrainZone zone,
+        out Vector3 spawnPosition,
+        float sampleRadius = 12f,
+        int attempts = 120)
+    {
+        spawnPosition = Vector3.zero;
+
+        if (worldData == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < attempts; i++)
+        {
+            int x = Random.Range(0, worldData.size + 1);
+            int z = Random.Range(0, worldData.size + 1);
+
+            if (worldData.GetZone(x, z) != zone)
+            {
+                continue;
+            }
+
+            Vector3 terrainPosition = new Vector3(x, worldData.GetHeight(x, z), z);
+
+            if (NavMesh.SamplePosition(terrainPosition, out NavMeshHit hit, sampleRadius, NavMesh.AllAreas))
+            {
+                spawnPosition = hit.position;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool TryGetNearbyNavMeshSpawnPosition(
+        Vector3 nearPosition,
+        TerrainZone zone,
+        float radius,
+        out Vector3 spawnPosition,
+        float sampleRadius = 12f,
+        int attempts = 120)
+    {
+        spawnPosition = Vector3.zero;
+
+        if (worldData == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < attempts; i++)
+        {
+            Vector2 offset = Random.insideUnitCircle * radius;
+            int x = Mathf.RoundToInt(nearPosition.x + offset.x);
+            int z = Mathf.RoundToInt(nearPosition.z + offset.y);
+
+            if (!worldData.IsInsideMap(x, z))
+            {
+                continue;
+            }
+
+            if (worldData.GetZone(x, z) != zone)
+            {
+                continue;
+            }
+
+            Vector3 terrainPosition = new Vector3(x, worldData.GetHeight(x, z), z);
+
+            if (NavMesh.SamplePosition(terrainPosition, out NavMeshHit hit, sampleRadius, NavMesh.AllAreas))
+            {
+                spawnPosition = hit.position;
+                return true;
+            }
+        }
+
+        return TryGetRandomNavMeshSpawnPosition(zone, out spawnPosition, sampleRadius, attempts);
+    }
+
 }
