@@ -10,7 +10,7 @@ public class MammothCollisionSetup : MonoBehaviour
 
     [Header("Root Collider")]
     [SerializeField] private Vector3 colliderCenter = new Vector3(0f, 1.5f, 0f);
-    [SerializeField] private Vector3 colliderSize = new Vector3(4f, 3f, 3f);
+    [SerializeField] private Vector3 colliderSize = new Vector3(4f, 4f, 5f);
 
     [Header("Visual")]
     [SerializeField] private string visualChildName = "MammothVisual";
