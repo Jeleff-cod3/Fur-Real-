@@ -109,6 +109,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private MammothHealthDto pendingMammothHealth;
     private EnemyHealth cachedMammothEnemy;
     private bool mammothRuntimeConfigured;
+    private float ignoreIncomingMammothDeathUntil;
     private float nextMammothStateSendTime;
     private float lastMammothStateSendTime;
     private bool hasSentInitialMammothState;
@@ -1437,6 +1438,16 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
+        if (IsLocalMammothAuthority())
+        {
+            return;
+        }
+
+        if (Time.unscaledTime < ignoreIncomingMammothDeathUntil && mammothState.currentHealth <= 0)
+        {
+            return;
+        }
+
         EnemyHealth mammoth = GetCachedMammothEnemy();
         if (mammoth == null)
         {
@@ -1446,19 +1457,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         pendingMammothState = null;
         TryConfigureMammothRuntime();
-        if (IsLocalMammothAuthority())
-        {
-            mammoth.ApplyNetworkHealth(mammothState.currentHealth, mammothState.maxHealth);
-        }
-        else
-        {
-            ApplyMammothHealthFallbackFromState(mammoth, mammothState.currentHealth, mammothState.maxHealth);
-        }
-
-        if (IsLocalMammothAuthority())
-        {
-            return;
-        }
+        ApplyMammothHealthFallbackFromState(mammoth, mammothState.currentHealth, mammothState.maxHealth);
 
         targetRemoteMammothPosition = MultiplayerJson.ArrayToVector(mammothState.position);
         targetRemoteMammothRotation = Quaternion.Euler(MultiplayerJson.ArrayToVector(mammothState.rotation));
@@ -1474,6 +1473,16 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private void TryApplyMammothHealth(MammothHealthDto mammothHealth)
     {
         if (mammothHealth == null)
+        {
+            return;
+        }
+
+        if (IsLocalMammothAuthority())
+        {
+            return;
+        }
+
+        if (Time.unscaledTime < ignoreIncomingMammothDeathUntil && mammothHealth.currentHealth <= 0)
         {
             return;
         }
@@ -1511,15 +1520,56 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private static EnemyHealth FindMammothEnemy()
     {
         EnemyHealth[] enemies = FindObjectsByType<EnemyHealth>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        EnemyHealth fallback = null;
+
         foreach (EnemyHealth enemy in enemies)
         {
-            if (IsMammothEnemy(enemy))
+            if (!IsMammothEnemy(enemy))
+            {
+                continue;
+            }
+
+            if (HasEnemyHealthAncestor(enemy.transform))
+            {
+                if (fallback == null)
+                {
+                    fallback = enemy;
+                }
+
+                continue;
+            }
+
+            if (enemy.GetComponent<MammothBrain>() != null || enemy.GetComponent<NavMeshAgent>() != null)
             {
                 return enemy;
             }
+
+            if (fallback == null)
+            {
+                fallback = enemy;
+            }
         }
 
-        return null;
+        return fallback;
+    }
+
+    public static void NotifyMammothRespawned(EnemyHealth mammoth)
+    {
+        if (Instance == null || mammoth == null)
+        {
+            return;
+        }
+
+        Instance.cachedMammothEnemy = mammoth;
+        Instance.pendingMammothState = null;
+        Instance.pendingMammothHealth = null;
+        Instance.mammothRuntimeConfigured = false;
+        Instance.hasRemoteMammothPose = false;
+        Instance.ignoreIncomingMammothDeathUntil = Time.unscaledTime + 6f;
+        Instance.lastSentMammothPosition = mammoth.transform.position;
+        Instance.lastSentMammothEulerAngles = mammoth.transform.eulerAngles;
+        Instance.hasSentInitialMammothState = false;
+        Instance.TryConfigureMammothRuntime();
     }
 
     public static Transform GetClosestPlayerTransform(Vector3 origin)
@@ -1619,6 +1669,27 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             || enemyName.IndexOf("Mamoth", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
+    private static bool HasEnemyHealthAncestor(Transform transform)
+    {
+        if (transform == null)
+        {
+            return false;
+        }
+
+        Transform current = transform.parent;
+        while (current != null)
+        {
+            if (current.GetComponent<EnemyHealth>() != null)
+            {
+                return true;
+            }
+
+            current = current.parent;
+        }
+
+        return false;
+    }
+
     private void ResetStateSendTracking()
     {
         stateSeq = 0;
@@ -1637,6 +1708,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         targetRemoteMammothRotation = Quaternion.identity;
         cachedMammothEnemy = null;
         mammothRuntimeConfigured = false;
+        ignoreIncomingMammothDeathUntil = 0f;
         nextGamePingTime = 0f;
         nextLobbyPingTime = 0f;
         nextHudRefreshTime = 0f;
