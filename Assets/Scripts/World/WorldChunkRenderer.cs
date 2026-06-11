@@ -251,12 +251,9 @@ public class WorldChunkRenderer : MonoBehaviour
             navMeshSurface = gameObject.AddComponent<NavMeshSurface>();
         }
 
-        int groundLayer = LayerMask.NameToLayer(groundLayerName);
-        int groundMask = groundLayer >= 0 ? 1 << groundLayer : Physics.DefaultRaycastLayers;
-
         navMeshSurface.collectObjects = CollectObjects.Children;
         navMeshSurface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
-        navMeshSurface.layerMask = groundMask;
+        navMeshSurface.layerMask = GetNavMeshBakeLayerMask();
         navMeshSurface.defaultArea = 0;
 
         navMeshSurface.BuildNavMesh();
@@ -264,6 +261,25 @@ public class WorldChunkRenderer : MonoBehaviour
         IsNavMeshReady = true;
 
         Debug.Log("Runtime NavMesh built for generated world.");
+    }
+
+    private LayerMask GetNavMeshBakeLayerMask()
+    {
+        int mask = 0;
+
+        int groundLayer = LayerMask.NameToLayer(groundLayerName);
+        if (groundLayer >= 0)
+        {
+            mask |= 1 << groundLayer;
+        }
+
+        int defaultLayer = LayerMask.NameToLayer("Default");
+        if (defaultLayer >= 0)
+        {
+            mask |= 1 << defaultLayer;
+        }
+
+        return mask != 0 ? mask : Physics.DefaultRaycastLayers;
     }
 
     private Vector2Int GetChunkCoord(Vector3 worldPosition)
@@ -611,10 +627,17 @@ public class WorldChunkRenderer : MonoBehaviour
             treeObj.transform.SetParent(chunkObject.transform, false);
             var mf = treeObj.AddComponent<MeshFilter>();
             var mr = treeObj.AddComponent<MeshRenderer>();
+            var mc = treeObj.AddComponent<MeshCollider>();
             mf.sharedMesh = meshData.treeMesh;
+            mc.sharedMesh = meshData.treeMesh;
             mr.sharedMaterial = resourceForestTreeMaterial != null
                 ? resourceForestTreeMaterial
                 : treeMaterial;
+
+            if (treesBlockNavigation)
+            {
+                MarkObjectAsNotWalkable(treeObj);
+            }
         }
 
         if (meshData.shadowMesh != null)

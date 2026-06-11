@@ -2869,6 +2869,11 @@ public sealed class LocalCubeController : MonoBehaviour
             gameObject.AddComponent<PrototypePlayerRespawn>();
         }
 
+        if (GetComponent<PlayerHealthBarUI>() == null)
+        {
+            gameObject.AddComponent<PlayerHealthBarUI>();
+        }
+
         gameObject.tag = "Player";
 
         Debug.Log("Combat setup added to local multiplayer player with PlayerHealth.");

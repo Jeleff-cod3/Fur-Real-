@@ -301,6 +301,16 @@ public class NavMeshWASDMovement : MonoBehaviour
 
     private void EnsureCombatSupport()
     {
+        if (GetComponent<PlayerHealth>() == null)
+        {
+            gameObject.AddComponent<PlayerHealth>();
+        }
+
+        if (GetComponent<PrototypePlayerRespawn>() == null)
+        {
+            gameObject.AddComponent<PrototypePlayerRespawn>();
+        }
+
         if (GetComponent<PlayerMouseAim>() == null)
         {
             gameObject.AddComponent<PlayerMouseAim>();
@@ -314,6 +324,11 @@ public class NavMeshWASDMovement : MonoBehaviour
         if (GetComponent<PlayerCombat>() == null)
         {
             gameObject.AddComponent<PlayerCombat>();
+        }
+
+        if (GetComponent<PlayerHealthBarUI>() == null)
+        {
+            gameObject.AddComponent<PlayerHealthBarUI>();
         }
     }
 }
