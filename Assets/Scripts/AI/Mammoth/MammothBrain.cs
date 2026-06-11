@@ -5,12 +5,14 @@ public class MammothBrain : MonoBehaviour
     [Header("Decision Settings")]
     [SerializeField] private float decisionInterval = 0.35f;
     [SerializeField] private float recentDamageMemoryTime = 3f;
+    [SerializeField] private float targetMemoryDuration = 4.5f;
 
     private MammothState state;
     private MammothPersonality personality;
     private MammothSenses senses;
     private MammothCombat combat;
     private MammothActionController actionController;
+    private MammothMovement movement;
     private EnemyHealth health;
 
     private float nextDecisionTime;
@@ -22,6 +24,7 @@ public class MammothBrain : MonoBehaviour
         senses = GetComponent<MammothSenses>();
         combat = GetComponent<MammothCombat>();
         actionController = GetComponent<MammothActionController>();
+        movement = GetComponent<MammothMovement>();
         health = GetComponent<EnemyHealth>();
     }
 
@@ -45,27 +48,65 @@ public class MammothBrain : MonoBehaviour
 
     private MammothActionType ChooseAction()
     {
-        if (senses == null || !senses.HasTarget || !senses.IsTargetDetected)
+        if (senses == null)
         {
-            return Random.value < personality.curiosity ? MammothActionType.Roam : MammothActionType.Idle;
+            return MammothActionType.Idle;
         }
 
-        if (state != null && senses.Target != null)
+        if (state != null)
         {
-            state.SetTarget(senses.Target);
+            if (senses.Target != null)
+            {
+                state.SetTarget(senses.Target);
+            }
+
+            if (senses.CanSeeTarget && senses.Target != null)
+            {
+                state.RememberTargetSighting(senses.Target);
+            }
+            else if (state.currentTarget != null)
+            {
+                state.MarkTargetLost();
+            }
         }
 
         float healthPercent = GetHealthPercent();
         float fightDrive = personality != null ? personality.GetFightDrive() : 0.5f;
         float flightDrive = personality != null ? personality.GetFlightDrive() : 0.5f;
 
-        bool lowHealth = healthPercent <= personality.panicHealthThreshold;
+        bool lowHealth = personality != null && healthPercent <= personality.panicHealthThreshold;
         bool damagedRecently = state != null && state.WasDamagedRecently(recentDamageMemoryTime);
+        bool canSeeTarget = senses.HasTarget && senses.CanSeeTarget;
+        bool hasRecentTargetMemory = state != null && state.HasRecentTargetMemory(targetMemoryDuration);
 
         if (damagedRecently)
         {
-            personality.AddAnger(0.08f);
-            personality.AddFear(0.04f);
+            personality?.AddAnger(0.08f);
+            personality?.AddFear(0.04f);
+        }
+
+        if (!canSeeTarget)
+        {
+            if (hasRecentTargetMemory)
+            {
+                if (lowHealth && damagedRecently && flightDrive > fightDrive + 0.15f)
+                {
+                    return MammothActionType.RunAway;
+                }
+
+                return MammothActionType.Investigate;
+            }
+
+            if (state != null &&
+                state.currentAction == MammothActionType.Roam &&
+                movement != null &&
+                !movement.HasReachedDestination)
+            {
+                return MammothActionType.Roam;
+            }
+
+            float curiosity = personality != null ? personality.curiosity : 0.4f;
+            return Random.value < curiosity ? MammothActionType.Roam : MammothActionType.Idle;
         }
 
         if (lowHealth && flightDrive > fightDrive)
@@ -73,22 +114,22 @@ public class MammothBrain : MonoBehaviour
             return MammothActionType.RunAway;
         }
 
-        if (senses.IsTargetBehind && senses.IsTargetInTwistAttackRange && combat.CanTwistAttack)
+        if (combat != null && senses.IsTargetBehind && senses.IsTargetInTwistAttackRange && combat.CanTwistAttack)
         {
             return MammothActionType.TwistAttack;
         }
 
-        if (senses.IsTargetInStompRange && combat.CanStomp)
+        if (combat != null && senses.IsTargetInStompRange && combat.CanStomp)
         {
             return MammothActionType.Stomp;
         }
 
-        if (senses.IsTargetInNormalAttackRange && combat.CanNormalAttack)
+        if (combat != null && senses.IsTargetInNormalAttackRange && combat.CanNormalAttack)
         {
             return MammothActionType.NormalAttack;
         }
 
-        if (senses.IsTargetInChargeRange && combat.CanCharge && fightDrive > 0.45f)
+        if (combat != null && senses.IsTargetInChargeRange && combat.CanCharge && fightDrive > 0.45f)
         {
             return MammothActionType.Charge;
         }
@@ -105,7 +146,8 @@ public class MammothBrain : MonoBehaviour
 
         return MammothActionType.ChasePlayer;
     }
-        private float GetHealthPercent()
+
+    private float GetHealthPercent()
     {
         if (health == null)
         {

@@ -228,7 +228,12 @@ MonoBehaviour:
   thrustDistance: 0.9
   thrustForwardTime: 0.08
   thrustReturnTime: 0.18
+  meleeImpactPauseTime: 0.06
   tipHitbox: {fileID: 8981256622647497942}
+  meleeHitRadius: 0.3
+  meleeHitLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
   heldLocalPositionOffset: {x: 0.05, y: 0.18, z: 0.4}
   heldTipDirectionLocal: {x: 0, y: -0.18, z: 1}
   stabTipDirectionLocal: {x: 0, y: -0.32, z: 1}
@@ -240,10 +245,11 @@ MonoBehaviour:
   maxThrownLifetime: 6
   stickableLayers:
     serializedVersion: 2
-    m_Bits: 384
+    m_Bits: 385
   groundLayers:
     serializedVersion: 2
     m_Bits: 257
+  meleeStickChance: 0.1
   groundBreakChance: 0.5
   stuckDepth: 0.25
   alignSpearToVelocity: 1

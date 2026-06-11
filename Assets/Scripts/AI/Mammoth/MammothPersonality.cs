@@ -18,6 +18,8 @@ public class MammothPersonality : MonoBehaviour
 
     [Header("Generation")]
     [SerializeField] private bool randomizeOnAwake = true;
+    [SerializeField] private float angerSettleRate = 0.04f;
+    [SerializeField] private float fearSettleRate = 0.035f;
 
     private void Awake()
     {
@@ -25,6 +27,15 @@ public class MammothPersonality : MonoBehaviour
         {
             RandomizePersonality();
         }
+    }
+
+    private void Update()
+    {
+        float calmAnger = aggression * 0.18f;
+        float calmFear = fearfulness * 0.18f;
+
+        anger = Mathf.MoveTowards(anger, calmAnger, angerSettleRate * Time.deltaTime);
+        fear = Mathf.MoveTowards(fear, calmFear, fearSettleRate * Time.deltaTime);
     }
 
     public void RandomizePersonality()

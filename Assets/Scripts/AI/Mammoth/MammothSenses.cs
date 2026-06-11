@@ -5,6 +5,7 @@ public class MammothSenses : MonoBehaviour
     [Header("Target")]
     [SerializeField] private Transform target;
     [SerializeField] private string playerTag = "Player";
+    [SerializeField] private float targetRefreshInterval = 0.5f;
 
     [Header("Ranges")]
     [SerializeField] private float detectionRange = 35f;
@@ -31,9 +32,11 @@ public class MammothSenses : MonoBehaviour
     public bool IsTargetInTwistAttackRange { get; private set; }
     public bool IsTargetBehind { get; private set; }
 
+    private float nextTargetRefreshTime;
+
     private void Update()
     {
-        if (target == null)
+        if (!IsTargetValid(target) || Time.time >= nextTargetRefreshTime)
         {
             FindTarget();
         }
@@ -44,15 +47,23 @@ public class MammothSenses : MonoBehaviour
     public void SetTarget(Transform newTarget)
     {
         target = newTarget;
+        nextTargetRefreshTime = Time.time + targetRefreshInterval;
     }
 
     private void FindTarget()
     {
+        Transform runtimePlayer = MultiplayerPrototype.GetClosestPlayerTransform(transform.position);
+        if (IsTargetValid(runtimePlayer))
+        {
+            SetTarget(runtimePlayer);
+            return;
+        }
+
         GameObject playerObject = GameObject.FindGameObjectWithTag(playerTag);
 
-        if (playerObject != null)
+        if (playerObject != null && playerObject.activeInHierarchy)
         {
-            target = playerObject.transform;
+            SetTarget(playerObject.transform);
             return;
         }
 
@@ -60,14 +71,15 @@ public class MammothSenses : MonoBehaviour
 
         if (playerHealth != null)
         {
-            target = playerHealth.transform;
+            SetTarget(playerHealth.transform);
         }
     }
 
     private void UpdateSenses()
     {
-        if (target == null)
+        if (!IsTargetValid(target))
         {
+            target = null;
             DistanceToTarget = float.MaxValue;
             DirectionToTarget = Vector3.zero;
             CanSeeTarget = false;
@@ -112,5 +124,10 @@ public class MammothSenses : MonoBehaviour
         }
 
         return true;
+    }
+
+    private static bool IsTargetValid(Transform candidate)
+    {
+        return candidate != null && candidate.gameObject.activeInHierarchy;
     }
 }

@@ -73,6 +73,16 @@ public class PlayerWeaponPickup : MonoBehaviour
         Debug.Log("Weapon dropped.");
     }
 
+    public void DropEquippedWeaponIfAny()
+    {
+        if (equippedWeapon == null)
+        {
+            return;
+        }
+
+        DropWeapon();
+    }
+
     public void ThrowEquippedWeapon(Vector3 direction)
     {
         if (equippedWeapon == null)

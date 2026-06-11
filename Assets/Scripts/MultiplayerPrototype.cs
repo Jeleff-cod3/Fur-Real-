@@ -1522,6 +1522,91 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         return null;
     }
 
+    public static Transform GetClosestPlayerTransform(Vector3 origin)
+    {
+        if (Instance != null)
+        {
+            Transform runtimePlayer = Instance.FindClosestRuntimePlayerTransform(origin);
+            if (runtimePlayer != null)
+            {
+                return runtimePlayer;
+            }
+        }
+
+        return FindClosestFallbackPlayerTransform(origin);
+    }
+
+    public static bool TryGetLocalRespawnPosition(out Vector3 respawnPosition)
+    {
+        if (Instance != null)
+        {
+            respawnPosition = Instance.ResolveSafeSpawnPosition(
+                Instance.ResolveLocalSpawnSlot(),
+                Instance.currentUser != null ? Instance.currentUser.id : 0,
+                "local-respawn");
+            return true;
+        }
+
+        respawnPosition = Vector3.zero;
+        return false;
+    }
+
+    private Transform FindClosestRuntimePlayerTransform(Vector3 origin)
+    {
+        Transform closest = null;
+        float closestDistanceSqr = float.PositiveInfinity;
+
+        ConsiderPlayerTransform(localCube != null ? localCube.transform : null, origin, ref closest, ref closestDistanceSqr);
+
+        foreach (RemoteCubeController remote in remoteCubes.Values)
+        {
+            ConsiderPlayerTransform(remote != null ? remote.transform : null, origin, ref closest, ref closestDistanceSqr);
+        }
+
+        return closest;
+    }
+
+    private static Transform FindClosestFallbackPlayerTransform(Vector3 origin)
+    {
+        Transform closest = null;
+        float closestDistanceSqr = float.PositiveInfinity;
+
+        PlayerHealth[] playerHealths = FindObjectsByType<PlayerHealth>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (PlayerHealth playerHealth in playerHealths)
+        {
+            ConsiderPlayerTransform(playerHealth != null ? playerHealth.transform : null, origin, ref closest, ref closestDistanceSqr);
+        }
+
+        GameObject[] taggedPlayers = GameObject.FindGameObjectsWithTag("Player");
+        foreach (GameObject taggedPlayer in taggedPlayers)
+        {
+            ConsiderPlayerTransform(taggedPlayer != null ? taggedPlayer.transform : null, origin, ref closest, ref closestDistanceSqr);
+        }
+
+        return closest;
+    }
+
+    private static void ConsiderPlayerTransform(
+        Transform candidate,
+        Vector3 origin,
+        ref Transform closest,
+        ref float closestDistanceSqr)
+    {
+        if (candidate == null || !candidate.gameObject.activeInHierarchy)
+        {
+            return;
+        }
+
+        float distanceSqr = (candidate.position - origin).sqrMagnitude;
+        if (distanceSqr >= closestDistanceSqr)
+        {
+            return;
+        }
+
+        closest = candidate;
+        closestDistanceSqr = distanceSqr;
+    }
+
     private static bool IsMammothEnemy(EnemyHealth enemyHealth)
     {
         if (enemyHealth == null)
@@ -2705,6 +2790,11 @@ public sealed class LocalCubeController : MonoBehaviour
         if (health == null)
         {
             health = gameObject.AddComponent<PlayerHealth>();
+        }
+
+        if (GetComponent<PrototypePlayerRespawn>() == null)
+        {
+            gameObject.AddComponent<PrototypePlayerRespawn>();
         }
 
         gameObject.tag = "Player";

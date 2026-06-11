@@ -1130,4 +1130,25 @@ public class WorldChunkRenderer : MonoBehaviour
         return TryGetRandomNavMeshSpawnPosition(zone, out spawnPosition, sampleRadius, attempts);
     }
 
+    public bool TryGetZoneAtWorldPosition(Vector3 worldPosition, out TerrainZone zone)
+    {
+        zone = TerrainZone.Border;
+
+        if (worldData == null)
+        {
+            return false;
+        }
+
+        int x = Mathf.RoundToInt(worldPosition.x);
+        int z = Mathf.RoundToInt(worldPosition.z);
+
+        if (!worldData.IsInsideMap(x, z))
+        {
+            return false;
+        }
+
+        zone = worldData.GetZone(x, z);
+        return true;
+    }
+
 }

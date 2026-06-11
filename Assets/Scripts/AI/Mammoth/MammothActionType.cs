@@ -2,6 +2,7 @@ public enum MammothActionType
 {
     Idle,
     Roam,
+    Investigate,
     ChasePlayer,
     RunAway,
     Charge,

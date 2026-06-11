@@ -22,7 +22,11 @@ public class MammothActionController : MonoBehaviour
             return;
         }
 
-        Transform target = senses != null ? senses.Target : null;
+        Transform target = senses != null && senses.Target != null
+            ? senses.Target
+            : state != null
+                ? state.currentTarget
+                : null;
 
         if (state != null && !state.CanStartNewAction())
         {
@@ -37,8 +41,23 @@ public class MammothActionController : MonoBehaviour
                 break;
 
             case MammothActionType.Roam:
+                if (state != null && state.currentAction == MammothActionType.Roam && !movement.HasReachedDestination)
+                {
+                    return;
+                }
+
                 movement.Roam();
                 state?.SetAction(MammothActionType.Roam);
+                break;
+
+            case MammothActionType.Investigate:
+                if (state != null && state.currentAction == MammothActionType.Investigate)
+                {
+                    return;
+                }
+
+                movement.Investigate(state != null ? state.lastKnownTargetPosition : transform.position);
+                state?.SetAction(MammothActionType.Investigate);
                 break;
 
             case MammothActionType.ChasePlayer:

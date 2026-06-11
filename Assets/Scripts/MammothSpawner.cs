@@ -68,14 +68,15 @@ public class MammothSpawner : MonoBehaviour
     private void PrepareTemplateAndInitialMammoth()
     {
         EnemyHealth sceneMammoth = FindSceneMammoth();
+        GameObject templateSource = mammothPrefab != null
+            ? mammothPrefab
+            : sceneMammoth != null
+                ? sceneMammoth.gameObject
+                : null;
 
-        if (mammothPrefab != null)
+        if (templateSource != null)
         {
-            mammothTemplate = mammothPrefab;
-        }
-        else if (sceneMammoth != null)
-        {
-            mammothTemplate = Instantiate(sceneMammoth.gameObject, transform);
+            mammothTemplate = Instantiate(templateSource, transform);
             mammothTemplate.name = "MammothTemplate";
 
             MammothSpawner nestedSpawner = mammothTemplate.GetComponent<MammothSpawner>();
@@ -85,13 +86,19 @@ public class MammothSpawner : MonoBehaviour
                 Destroy(nestedSpawner);
             }
 
+            ResetMammothHealth(mammothTemplate, 3f);
             mammothTemplate.SetActive(false);
         }
 
         if (useExistingSceneMammothAsInitialSpawn && sceneMammoth != null)
         {
             PositionMammothAtSpawn(sceneMammoth, null);
+            ResetMammothHealth(sceneMammoth.gameObject, 3f);
             RegisterCurrentMammoth(sceneMammoth);
+        }
+        else if (sceneMammoth != null)
+        {
+            sceneMammoth.gameObject.SetActive(false);
         }
     }
 
@@ -118,6 +125,7 @@ public class MammothSpawner : MonoBehaviour
     {
         if (mammoth == null)
         {
+            Debug.LogWarning("MammothSpawner: spawned mammoth has no EnemyHealth.");
             return;
         }
 
@@ -164,14 +172,22 @@ public class MammothSpawner : MonoBehaviour
             return;
         }
 
+        ResetMammothHealth(mammothTemplate, 3f);
+
         GameObject mammothObject = Instantiate(mammothTemplate, spawnPosition, Quaternion.identity);
         mammothObject.name = "Mammoth";
         mammothObject.SetActive(true);
 
+        ResetMammothHealth(mammothObject, 3f);
         ConfigureSpawnedMammoth(mammothObject, spawnPosition);
 
         EnemyHealth mammothHealth = mammothObject.GetComponent<EnemyHealth>();
         RegisterCurrentMammoth(mammothHealth);
+
+        if (mammothHealth != null)
+        {
+            Debug.Log($"MammothSpawner: spawned mammoth alive with HP {mammothHealth.CurrentHealth}/{mammothHealth.MaxHealth}");
+        }
     }
 
     private void PositionMammothAtSpawn(EnemyHealth mammoth, Vector3? nearPosition)
@@ -187,6 +203,7 @@ public class MammothSpawner : MonoBehaviour
         }
 
         mammoth.transform.SetPositionAndRotation(spawnPosition, Quaternion.identity);
+        ResetMammothHealth(mammoth.gameObject, 3f);
         ConfigureSpawnedMammoth(mammoth.gameObject, spawnPosition);
     }
 
@@ -222,6 +239,23 @@ public class MammothSpawner : MonoBehaviour
         {
             Debug.LogWarning($"MammothSpawner: failed to warp mammoth to NavMesh near {spawnPosition}");
         }
+    }
+
+    private void ResetMammothHealth(GameObject mammothObject, float protectionSeconds)
+    {
+        if (mammothObject == null)
+        {
+            return;
+        }
+
+        EnemyHealth enemyHealth = mammothObject.GetComponent<EnemyHealth>();
+
+        if (enemyHealth == null)
+        {
+            return;
+        }
+
+        enemyHealth.ResetHealthToFull(protectionSeconds);
     }
 
     private bool TryResolveNavMeshSpawnPosition(Vector3? nearPosition, out Vector3 spawnPosition)

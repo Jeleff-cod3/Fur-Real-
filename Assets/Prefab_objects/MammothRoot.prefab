@@ -1,0 +1,677 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4672362932497323592
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6100093036274962886}
+  - component: {fileID: 9466948961624761}
+  - component: {fileID: 4190871540526255892}
+  - component: {fileID: 5611781482732641705}
+  - component: {fileID: 6199799675395644686}
+  - component: {fileID: 4017971612535400736}
+  - component: {fileID: 4336385006184036310}
+  - component: {fileID: 4364615296138484583}
+  - component: {fileID: 6923499693896314585}
+  - component: {fileID: 4385300257734511238}
+  - component: {fileID: 6259748794749334968}
+  - component: {fileID: 2249183356363389122}
+  - component: {fileID: 2337734062315251325}
+  - component: {fileID: 4692551962695102316}
+  - component: {fileID: 8088003402544090634}
+  m_Layer: 7
+  m_Name: MammothVisual
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6100093036274962886
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 1.5, z: 0}
+  m_LocalScale: {x: 4, y: 4, z: 5}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5890944331733354257}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &9466948961624761
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!23 &4190871540526255892
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!65 &5611781482732641705
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 0
+  serializedVersion: 3
+  m_Size: {x: 1, y: 1, z: 1}
+  m_Center: {x: 0, y: 0.5, z: 0}
+--- !u!54 &6199799675395644686
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  serializedVersion: 5
+  m_Mass: 30
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 0
+  m_IsKinematic: 1
+  m_Interpolate: 0
+  m_Constraints: 80
+  m_CollisionDetection: 0
+--- !u!114 &4017971612535400736
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1a834ee977f06a54f95316b9c8b6d0f8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::EnemyHealth
+  maxHealth: 100
+--- !u!114 &4336385006184036310
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9e4d3def8e10abe41b3fad65f9683577, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothActionController
+--- !u!114 &4364615296138484583
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ceac3237187d03749843a3c42822baa5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothBrain
+  decisionInterval: 0.35
+  recentDamageMemoryTime: 3
+  targetMemoryDuration: 4.5
+--- !u!114 &6923499693896314585
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 243700268908e8645ae89286b32ca344, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothCombat
+  normalAttackDamage: 15
+  stompDamage: 25
+  twistAttackDamage: 20
+  chargeDamage: 35
+  normalAttackRadius: 4
+  stompRadius: 3.2
+  twistAttackRadius: 4.5
+  chargeHitRadius: 3.5
+  normalAttackDuration: 0.8
+  stompDuration: 1.1
+  twistDuration: 1
+  chargeDamageDelay: 0.4
+  normalAttackCooldown: 1.5
+  stompCooldown: 3
+  twistCooldown: 4
+  chargeCooldown: 5
+  playerLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &4385300257734511238
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 243700268908e8645ae89286b32ca344, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothCombat
+  normalAttackDamage: 15
+  stompDamage: 25
+  twistAttackDamage: 20
+  chargeDamage: 35
+  normalAttackRadius: 4
+  stompRadius: 3.2
+  twistAttackRadius: 4.5
+  chargeHitRadius: 3.5
+  normalAttackDuration: 0.8
+  stompDuration: 1.1
+  twistDuration: 1
+  chargeDamageDelay: 0.4
+  normalAttackCooldown: 1.5
+  stompCooldown: 3
+  twistCooldown: 4
+  chargeCooldown: 5
+  playerLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!195 &6259748794749334968
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_AgentTypeID: 0
+  m_Radius: 1.5
+  m_Speed: 3.5
+  m_Acceleration: 8
+  avoidancePriority: 50
+  m_AngularSpeed: 120
+  m_StoppingDistance: 3.5
+  m_AutoTraverseOffMeshLink: 1
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 3
+  m_BaseOffset: 0
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4
+--- !u!114 &2249183356363389122
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 48a834e5485880340a4ca615ce282335, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothMovement
+  roamSpeed: 2
+  chaseSpeed: 4
+  runAwaySpeed: 5
+  chargeSpeed: 8
+  roamRadius: 12
+  roamPointSearchRadius: 8
+  transitionRoamChance: 0.12
+  runAwayDistance: 14
+  chargeDistance: 12
+  investigateSpeed: 3.2
+  lookAroundTurnSpeed: 4.5
+  lookAroundSweepAngle: 70
+  lookAroundSweepSpeed: 1.8
+  navMeshRecoveryRadius: 80
+  destinationSampleRadius: 10
+--- !u!114 &2337734062315251325
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 07dcdabb9a957ca4a8ead9b45372d711, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothPersonality
+  bravery: 0
+  aggression: 0
+  curiosity: 0
+  fearfulness: 0
+  panicHealthThreshold: 0.3
+  enragedHealthThreshold: 0.45
+  anger: 0
+  fear: 0
+  randomizeOnAwake: 1
+  angerSettleRate: 0.04
+  fearSettleRate: 0.035
+--- !u!114 &4692551962695102316
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fec771f958180304194fb0fe7b0ddc74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothSenses
+  target: {fileID: 0}
+  playerTag: Player
+  targetRefreshInterval: 0.5
+  detectionRange: 35
+  chaseRange: 25
+  chargeRange: 16
+  normalAttackRange: 4
+  stompRange: 3
+  twistAttackRange: 4.5
+  fieldOfView: 150
+  lineOfSightMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &8088003402544090634
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4672362932497323592}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cf6a796604656ce4c9cf6cb2a204c9d7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothState
+  currentAction: 0
+  previousAction: 0
+  isBusy: 0
+  isAttacking: 0
+  isCharging: 0
+  isRecovering: 0
+  currentTarget: {fileID: 0}
+  lastKnownTargetPosition: {x: 0, y: 0, z: 0}
+  lastActionChangeTime: 0
+  lastDamageTime: 0
+  lastTargetSeenTime: 0
+  lastTargetLostTime: 0
+--- !u!1 &5045610617403587843
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5890944331733354257}
+  - component: {fileID: 1629962182255038861}
+  - component: {fileID: 5837564960625675929}
+  - component: {fileID: 5182959838850190922}
+  - component: {fileID: 545109132835627827}
+  - component: {fileID: 7579514696631988548}
+  - component: {fileID: 7342888453063376144}
+  - component: {fileID: 6472649926063186623}
+  - component: {fileID: 3656631920839052385}
+  - component: {fileID: 8764205223075664422}
+  - component: {fileID: 8200351044758712783}
+  - component: {fileID: 915832701431205423}
+  - component: {fileID: -3401767189087251307}
+  m_Layer: 7
+  m_Name: MammothRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5890944331733354257
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 6100093036274962886}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1629962182255038861
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9e4d3def8e10abe41b3fad65f9683577, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothActionController
+--- !u!114 &5837564960625675929
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ceac3237187d03749843a3c42822baa5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothBrain
+  decisionInterval: 0.35
+  recentDamageMemoryTime: 3
+  targetMemoryDuration: 4.5
+--- !u!114 &5182959838850190922
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 243700268908e8645ae89286b32ca344, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothCombat
+  normalAttackDamage: 15
+  stompDamage: 25
+  twistAttackDamage: 20
+  chargeDamage: 35
+  normalAttackRadius: 4
+  stompRadius: 3.2
+  twistAttackRadius: 4.5
+  chargeHitRadius: 3.5
+  normalAttackDuration: 0.8
+  stompDuration: 1.1
+  twistDuration: 1
+  chargeDamageDelay: 0.4
+  normalAttackCooldown: 1.5
+  stompCooldown: 3
+  twistCooldown: 4
+  chargeCooldown: 5
+  playerLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!195 &545109132835627827
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_AgentTypeID: 0
+  m_Radius: 1.5
+  m_Speed: 3.5
+  m_Acceleration: 8
+  avoidancePriority: 50
+  m_AngularSpeed: 120
+  m_StoppingDistance: 3.5
+  m_AutoTraverseOffMeshLink: 1
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 3
+  m_BaseOffset: 0
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4
+--- !u!114 &7579514696631988548
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 48a834e5485880340a4ca615ce282335, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothMovement
+  roamSpeed: 2
+  chaseSpeed: 4
+  runAwaySpeed: 5
+  chargeSpeed: 8
+  roamRadius: 12
+  roamPointSearchRadius: 8
+  transitionRoamChance: 0.12
+  runAwayDistance: 14
+  chargeDistance: 12
+  investigateSpeed: 3.2
+  lookAroundTurnSpeed: 4.5
+  lookAroundSweepAngle: 70
+  lookAroundSweepSpeed: 1.8
+  navMeshRecoveryRadius: 80
+  destinationSampleRadius: 10
+--- !u!114 &7342888453063376144
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 07dcdabb9a957ca4a8ead9b45372d711, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothPersonality
+  bravery: 0
+  aggression: 0
+  curiosity: 0
+  fearfulness: 0
+  panicHealthThreshold: 0.3
+  enragedHealthThreshold: 0.45
+  anger: 0
+  fear: 0
+  randomizeOnAwake: 1
+  angerSettleRate: 0.04
+  fearSettleRate: 0.035
+--- !u!114 &6472649926063186623
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fec771f958180304194fb0fe7b0ddc74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothSenses
+  target: {fileID: 0}
+  playerTag: Player
+  targetRefreshInterval: 0.5
+  detectionRange: 35
+  chaseRange: 25
+  chargeRange: 16
+  normalAttackRange: 4
+  stompRange: 3
+  twistAttackRange: 4.5
+  fieldOfView: 150
+  lineOfSightMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &3656631920839052385
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cf6a796604656ce4c9cf6cb2a204c9d7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothState
+  currentAction: 0
+  previousAction: 0
+  isBusy: 0
+  isAttacking: 0
+  isCharging: 0
+  isRecovering: 0
+  currentTarget: {fileID: 0}
+  lastKnownTargetPosition: {x: 0, y: 0, z: 0}
+  lastActionChangeTime: 0
+  lastDamageTime: 0
+  lastTargetSeenTime: 0
+  lastTargetLostTime: 0
+--- !u!114 &8764205223075664422
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1a834ee977f06a54f95316b9c8b6d0f8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::EnemyHealth
+  maxHealth: 100
+--- !u!65 &8200351044758712783
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 4, y: 3, z: 3}
+  m_Center: {x: 0, y: 1.5, z: 0}
+--- !u!54 &915832701431205423
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  serializedVersion: 5
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 0
+  m_IsKinematic: 1
+  m_Interpolate: 0
+  m_Constraints: 80
+  m_CollisionDetection: 3
+--- !u!114 &-3401767189087251307
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5045610617403587843}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 66fdbf2030d7bfe4cb6c3ce285739b6f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MammothCollisionSetup
+  enemyLayerName: Enemy
+  applyLayerToChildren: 1
+  colliderCenter: {x: 0, y: 1.5, z: 0}
+  colliderSize: {x: 4, y: 3, z: 3}
+  visualChildName: MammothVisual
+  disableChildColliders: 1

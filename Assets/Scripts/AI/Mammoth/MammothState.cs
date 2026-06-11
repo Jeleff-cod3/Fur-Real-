@@ -17,6 +17,8 @@ public class MammothState : MonoBehaviour
     public Vector3 lastKnownTargetPosition;
     public float lastActionChangeTime;
     public float lastDamageTime;
+    public float lastTargetSeenTime;
+    public float lastTargetLostTime;
 
     public void SetAction(MammothActionType newAction)
     {
@@ -42,6 +44,28 @@ public class MammothState : MonoBehaviour
         }
     }
 
+    public void RememberTargetSighting(Transform target)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        currentTarget = target;
+        lastKnownTargetPosition = target.position;
+        lastTargetSeenTime = Time.time;
+    }
+
+    public void MarkTargetLost()
+    {
+        if (currentTarget == null)
+        {
+            return;
+        }
+
+        lastTargetLostTime = Time.time;
+    }
+
     public void MarkDamaged()
     {
         lastDamageTime = Time.time;
@@ -50,6 +74,21 @@ public class MammothState : MonoBehaviour
     public bool WasDamagedRecently(float recentTime)
     {
         return Time.time - lastDamageTime <= recentTime;
+    }
+
+    public bool HasRecentTargetMemory(float memoryDuration)
+    {
+        return lastTargetSeenTime > 0f && Time.time - lastTargetSeenTime <= memoryDuration;
+    }
+
+    public float TimeSinceLastTargetSeen()
+    {
+        if (lastTargetSeenTime <= 0f)
+        {
+            return Mathf.Infinity;
+        }
+
+        return Time.time - lastTargetSeenTime;
     }
 
     public bool CanStartNewAction()
