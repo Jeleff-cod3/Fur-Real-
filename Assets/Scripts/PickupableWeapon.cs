@@ -76,6 +76,7 @@ public class PickupableWeapon : MonoBehaviour
     public float TipCastRadius => tipCastRadius;
     public bool IsHeld => state == SpearState.Held;
     public bool IsBroken => state == SpearState.Broken;
+    public bool CanBePickedUpFromWorld => state != SpearState.Held && state != SpearState.Broken;
 
     public event Action<PickupableWeapon> RemovedFromWorldSupply;
     private bool hasNotifiedRemovedFromWorldSupply;
@@ -101,6 +102,7 @@ public class PickupableWeapon : MonoBehaviour
         }
 
         SetupWorldPhysics();
+        PickupHighlightVisual.EnsureAttached(gameObject);
     }
 
     private void Update()

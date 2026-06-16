@@ -575,6 +575,7 @@ MonoBehaviour:
   player: {fileID: 0}
   terrainMaterial: {fileID: 2100000, guid: 5008a87914539b7419234f13c6053b4a, type: 2}
   cavePrefab: {fileID: 0}
+  craftedSpearPrefab: {fileID: 1716549763528007691, guid: 86eea1bb0035dad4dbaece6c3416c92f, type: 3}
   mapSize: 1000
   chunkSize: 50
   viewDistance: 2
@@ -1114,13 +1115,13 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1900010001}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1bf9f4c2744fcbd499c9bf2021ee426c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SpearTestSpawner
   spearPrefab: {fileID: 1716549763528007691, guid: 86eea1bb0035dad4dbaece6c3416c92f, type: 3}
-  spearCount: 5
+  spearCount: 12
   initialSpawnZone: 0
   replacementSpawnZone: 0
   startOffset: {x: -3, y: 0, z: 2}
@@ -1158,6 +1159,9 @@ MonoBehaviour:
   navMeshSampleRadius: 40
   worldReadyTimeout: 12
   spawnAttempts: 100
+  spawnProtectionSeconds: 3
+  groundProbeHeight: 40
+  groundProbeDistance: 120
   useExistingSceneMammothAsInitialSpawn: 0
 --- !u!1001 &2078932839
 PrefabInstance:

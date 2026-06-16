@@ -23,6 +23,7 @@ public class WorldChunkRenderer : MonoBehaviour
     public Transform player;
     public Material terrainMaterial;
     public GameObject cavePrefab;
+    public PickupableWeapon craftedSpearPrefab;
 
     [Header("Map Settings")]
     public int mapSize = 1000;
@@ -59,6 +60,10 @@ public class WorldChunkRenderer : MonoBehaviour
     public RockSettings rockSettings = new RockSettings();
     public Material rockMaterial;
     public Material rockShadowMaterial;
+
+    [Header("Pickup Resources")]
+    public PickupStickSpawnSettings pickupStickSpawnSettings = new PickupStickSpawnSettings();
+    public PickupRockSpawnSettings pickupRockSpawnSettings = new PickupRockSpawnSettings();
 
     [Header("Extra Vegetation")]
     public VegetationSettings vegetationSettings = new VegetationSettings();
@@ -100,6 +105,21 @@ public class WorldChunkRenderer : MonoBehaviour
         new HashSet<Vector2Int>();
 
     private GameObject caveInstance;
+    private PickupableWeapon cachedFallbackSpearPrefab;
+
+    private readonly Dictionary<string, PickupableItem> activeResourceItems =
+        new Dictionary<string, PickupableItem>();
+
+    private readonly Dictionary<PickupableItem, string> resourceIdsByItem =
+        new Dictionary<PickupableItem, string>();
+
+    private readonly HashSet<string> removedResourceIds =
+        new HashSet<string>();
+
+    private readonly List<string> resourceIdsToCleanup =
+        new List<string>();
+
+    public PickupableWeapon CraftedSpearPrefab => ResolveCraftedSpearPrefab();
 
     private void Start()
     {
@@ -482,6 +502,7 @@ public class WorldChunkRenderer : MonoBehaviour
         CreateVegetationForChunk(chunkObject, startX, startZ);
         CreateDeadTreesForChunk(chunkObject, startX, startZ);
         CreateRocksForChunk(chunkObject, startX, startZ);
+        CreatePickupResourcesForChunk(chunkObject, chunkCoord, startX, startZ);
 
         activeChunks.Add(chunkCoord, chunkObject);
     }
@@ -861,6 +882,407 @@ public class WorldChunkRenderer : MonoBehaviour
         }
     }
 
+    private void CreatePickupResourcesForChunk(
+        GameObject chunkObject,
+        Vector2Int chunkCoord,
+        int startX,
+        int startZ
+    )
+    {
+        CleanupMissingResourceItems();
+
+        if ((pickupStickSpawnSettings == null || !pickupStickSpawnSettings.enabled) &&
+            (pickupRockSpawnSettings == null || !pickupRockSpawnSettings.enabled))
+        {
+            return;
+        }
+
+        GameObject pickupRoot = new GameObject("Pickup Resources");
+        pickupRoot.transform.SetParent(chunkObject.transform, false);
+        pickupRoot.transform.localPosition = Vector3.zero;
+        pickupRoot.transform.localRotation = Quaternion.identity;
+        pickupRoot.transform.localScale = Vector3.one;
+
+        if (pickupStickSpawnSettings != null && pickupStickSpawnSettings.enabled)
+        {
+            CreateStickPickupsForChunk(pickupRoot.transform, chunkCoord, startX, startZ);
+        }
+
+        if (pickupRockSpawnSettings != null && pickupRockSpawnSettings.enabled)
+        {
+            CreateRockPickupsForChunk(pickupRoot.transform, chunkCoord, startX, startZ);
+        }
+    }
+
+    private void CreateStickPickupsForChunk(
+        Transform pickupRoot,
+        Vector2Int chunkCoord,
+        int startX,
+        int startZ
+    )
+    {
+        if (resourceForestTreeSettings == null || !resourceForestTreeSettings.enabled)
+        {
+            return;
+        }
+
+        List<ResourceForestTreeInstance> treeInstances =
+            ResourceForestTreeChunkGenerator.GenerateTreeInstances(
+                worldData,
+                startX,
+                startZ,
+                chunkSize,
+                seed,
+                resourceForestTreeSettings
+            );
+
+        for (int treeIndex = 0; treeIndex < treeInstances.Count; treeIndex++)
+        {
+            ResourceForestTreeInstance treeInstance = treeInstances[treeIndex];
+            System.Random random = new System.Random(
+                seed ^
+                chunkCoord.x * 73856093 ^
+                chunkCoord.y * 19349663 ^
+                treeIndex * 83492791
+            );
+
+            if ((float)random.NextDouble() > pickupStickSpawnSettings.treeDropChance)
+            {
+                continue;
+            }
+
+            int stickCount = GetWeightedStickCount(random);
+            float treeWorldX = startX + treeInstance.localPosition.x;
+            float treeWorldZ = startZ + treeInstance.localPosition.z;
+
+            for (int stickIndex = 0; stickIndex < stickCount; stickIndex++)
+            {
+                string resourceId = $"stick_{chunkCoord.x}_{chunkCoord.y}_{treeIndex}_{stickIndex}";
+                if (!CanSpawnResourceId(resourceId))
+                {
+                    continue;
+                }
+
+                for (int attempt = 0; attempt < 6; attempt++)
+                {
+                    float angle = (float)random.NextDouble() * Mathf.PI * 2f;
+                    float distance = Mathf.Lerp(
+                        pickupStickSpawnSettings.minDistanceFromTree,
+                        pickupStickSpawnSettings.maxDistanceFromTree,
+                        (float)random.NextDouble()
+                    );
+
+                    float worldX = treeWorldX + Mathf.Cos(angle) * distance;
+                    float worldZ = treeWorldZ + Mathf.Sin(angle) * distance;
+
+                    if (!TryGetLocalGroundPosition(
+                            startX,
+                            startZ,
+                            worldX,
+                            worldZ,
+                            TerrainZone.Resource,
+                            pickupStickSpawnSettings.yOffset,
+                            pickupStickSpawnSettings.maxSlopeAngle,
+                            out Vector3 localPosition))
+                    {
+                        continue;
+                    }
+
+                    Quaternion localRotation = Quaternion.Euler(
+                        0f,
+                        (float)random.NextDouble() * 360f,
+                        Mathf.Lerp(-18f, 18f, (float)random.NextDouble())
+                    );
+
+                    PickupableItem item = PickupableItemFactory.CreateStick(
+                        pickupRoot,
+                        localPosition,
+                        localRotation
+                    );
+                    RegisterResourceItem(resourceId, item);
+                    break;
+                }
+            }
+        }
+    }
+
+    private void CreateRockPickupsForChunk(
+        Transform pickupRoot,
+        Vector2Int chunkCoord,
+        int startX,
+        int startZ
+    )
+    {
+        System.Random random = new System.Random(
+            seed ^
+            startX * 83492791 ^
+            startZ * 297121507
+        );
+
+        for (int z = 0; z <= chunkSize; z += pickupRockSpawnSettings.spacing)
+        {
+            for (int x = 0; x <= chunkSize; x += pickupRockSpawnSettings.spacing)
+            {
+                int worldX = startX + x;
+                int worldZ = startZ + z;
+
+                if (!worldData.IsInsideMap(worldX, worldZ))
+                {
+                    continue;
+                }
+
+                TerrainZone zone = worldData.GetZone(worldX, worldZ);
+                float density = GetPickupRockDensity(zone);
+                if (density <= 0f || (float)random.NextDouble() > density)
+                {
+                    continue;
+                }
+
+                string resourceId = $"rock_{chunkCoord.x}_{chunkCoord.y}_{x}_{z}";
+                if (!CanSpawnResourceId(resourceId))
+                {
+                    continue;
+                }
+
+                float jitterRange = pickupRockSpawnSettings.spacing * 0.42f;
+                float finalWorldX = worldX + Mathf.Lerp(
+                    -jitterRange,
+                    jitterRange,
+                    (float)random.NextDouble()
+                );
+                float finalWorldZ = worldZ + Mathf.Lerp(
+                    -jitterRange,
+                    jitterRange,
+                    (float)random.NextDouble()
+                );
+
+                if (!TryGetLocalGroundPosition(
+                        startX,
+                        startZ,
+                        finalWorldX,
+                        finalWorldZ,
+                        null,
+                        pickupRockSpawnSettings.yOffset,
+                        pickupRockSpawnSettings.maxSlopeAngle,
+                        out Vector3 localPosition))
+                {
+                    continue;
+                }
+
+                float baseScale = Mathf.Lerp(
+                    pickupRockSpawnSettings.minVisualScale,
+                    pickupRockSpawnSettings.maxVisualScale,
+                    (float)random.NextDouble()
+                );
+                Vector3 visualScale = new Vector3(
+                    baseScale * Mathf.Lerp(0.85f, 1.18f, (float)random.NextDouble()),
+                    baseScale * Mathf.Lerp(0.8f, 1.08f, (float)random.NextDouble()),
+                    baseScale * Mathf.Lerp(0.85f, 1.18f, (float)random.NextDouble())
+                );
+
+                Quaternion localRotation = Quaternion.Euler(
+                    (float)random.NextDouble() * 360f,
+                    (float)random.NextDouble() * 360f,
+                    (float)random.NextDouble() * 360f
+                );
+
+                PickupableItem item = PickupableItemFactory.CreateRock(
+                    pickupRoot,
+                    localPosition,
+                    localRotation,
+                    visualScale
+                );
+                RegisterResourceItem(resourceId, item);
+            }
+        }
+    }
+
+    private bool TryGetLocalGroundPosition(
+        int startX,
+        int startZ,
+        float worldX,
+        float worldZ,
+        TerrainZone? requiredZone,
+        float yOffset,
+        float maxSlopeAngle,
+        out Vector3 localPosition)
+    {
+        int sampleX = Mathf.RoundToInt(worldX);
+        int sampleZ = Mathf.RoundToInt(worldZ);
+
+        localPosition = Vector3.zero;
+
+        if (!worldData.IsInsideMap(sampleX, sampleZ))
+        {
+            return false;
+        }
+
+        if (requiredZone.HasValue && worldData.GetZone(sampleX, sampleZ) != requiredZone.Value)
+        {
+            return false;
+        }
+
+        if (!requiredZone.HasValue && worldData.GetZone(sampleX, sampleZ) == TerrainZone.Border)
+        {
+            return false;
+        }
+
+        if (IsTerrainTooSteep(worldData, sampleX, sampleZ, maxSlopeAngle))
+        {
+            return false;
+        }
+
+        localPosition = new Vector3(
+            worldX - startX,
+            worldData.GetHeight(sampleX, sampleZ) + yOffset,
+            worldZ - startZ
+        );
+        return true;
+    }
+
+    private void RegisterResourceItem(string resourceId, PickupableItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.RemovedFromWorldSupply -= HandleResourceRemovedFromWorldSupply;
+        item.RemovedFromWorldSupply += HandleResourceRemovedFromWorldSupply;
+
+        activeResourceItems[resourceId] = item;
+        resourceIdsByItem[item] = resourceId;
+    }
+
+    private void HandleResourceRemovedFromWorldSupply(PickupableItem item)
+    {
+        if (item == null)
+        {
+            return;
+        }
+
+        item.RemovedFromWorldSupply -= HandleResourceRemovedFromWorldSupply;
+
+        if (resourceIdsByItem.TryGetValue(item, out string resourceId))
+        {
+            activeResourceItems.Remove(resourceId);
+            resourceIdsByItem.Remove(item);
+            removedResourceIds.Add(resourceId);
+        }
+    }
+
+    private void CleanupMissingResourceItems()
+    {
+        resourceIdsToCleanup.Clear();
+
+        foreach (KeyValuePair<string, PickupableItem> pair in activeResourceItems)
+        {
+            if (pair.Value == null)
+            {
+                resourceIdsToCleanup.Add(pair.Key);
+            }
+        }
+
+        for (int i = 0; i < resourceIdsToCleanup.Count; i++)
+        {
+            activeResourceItems.Remove(resourceIdsToCleanup[i]);
+        }
+
+        List<PickupableItem> itemKeys = new List<PickupableItem>(resourceIdsByItem.Keys);
+        for (int i = 0; i < itemKeys.Count; i++)
+        {
+            if (itemKeys[i] == null)
+            {
+                resourceIdsByItem.Remove(itemKeys[i]);
+            }
+        }
+    }
+
+    private bool CanSpawnResourceId(string resourceId)
+    {
+        if (string.IsNullOrEmpty(resourceId))
+        {
+            return false;
+        }
+
+        if (removedResourceIds.Contains(resourceId))
+        {
+            return false;
+        }
+
+        return !activeResourceItems.TryGetValue(resourceId, out PickupableItem existingItem) || existingItem == null;
+    }
+
+    private float GetPickupRockDensity(TerrainZone zone)
+    {
+        switch (zone)
+        {
+            case TerrainZone.Arena:
+                return pickupRockSpawnSettings.arenaDensity;
+            case TerrainZone.Transition:
+                return pickupRockSpawnSettings.transitionDensity;
+            case TerrainZone.Resource:
+                return pickupRockSpawnSettings.resourceDensity;
+            default:
+                return 0f;
+        }
+    }
+
+    private int GetWeightedStickCount(System.Random random)
+    {
+        float roll = (float)random.NextDouble();
+        float oneThreshold = pickupStickSpawnSettings.oneStickWeight;
+        float twoThreshold = oneThreshold + pickupStickSpawnSettings.twoStickWeight;
+
+        if (roll < oneThreshold)
+        {
+            return 1;
+        }
+
+        if (roll < twoThreshold)
+        {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private PickupableWeapon ResolveCraftedSpearPrefab()
+    {
+        if (craftedSpearPrefab != null)
+        {
+            return craftedSpearPrefab;
+        }
+
+        if (cachedFallbackSpearPrefab != null)
+        {
+            return cachedFallbackSpearPrefab;
+        }
+
+        SpearTestSpawner spearSpawner = FindAnyObjectByType<SpearTestSpawner>();
+        if (spearSpawner != null && spearSpawner.SpearPrefab != null)
+        {
+            cachedFallbackSpearPrefab = spearSpawner.SpearPrefab;
+            return cachedFallbackSpearPrefab;
+        }
+
+        cachedFallbackSpearPrefab = FindAnyObjectByType<PickupableWeapon>();
+        return cachedFallbackSpearPrefab;
+    }
+
+    private static bool IsTerrainTooSteep(WorldData data, int x, int z, float maxSlopeAngle)
+    {
+        float center = data.GetHeight(x, z);
+        float right = data.GetHeight(x + 1, z);
+        float forward = data.GetHeight(x, z + 1);
+
+        Vector3 dx = new Vector3(1f, right - center, 0f);
+        Vector3 dz = new Vector3(0f, forward - center, 1f);
+        Vector3 normal = Vector3.Cross(dz, dx).normalized;
+
+        return Vector3.Angle(normal, Vector3.up) > maxSlopeAngle;
+    }
+
     private void CreateVegetationForChunk(GameObject chunkObject, int startX, int startZ)
     {
         if (vegetationSettings == null || !vegetationSettings.enabled)
@@ -1173,5 +1595,4 @@ public class WorldChunkRenderer : MonoBehaviour
         zone = worldData.GetZone(x, z);
         return true;
     }
-
 }

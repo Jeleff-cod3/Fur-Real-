@@ -8,6 +8,13 @@ public struct ResourceForestTreeChunkMeshes
     public Mesh shadowMesh;
 }
 
+public struct ResourceForestTreeInstance
+{
+    public Vector3 localPosition;
+    public bool usePine;
+    public float yaw;
+}
+
 public static class ResourceForestTreeChunkGenerator
 {
     private const int TrunkSides = 6;
@@ -29,12 +36,115 @@ public static class ResourceForestTreeChunkGenerator
             return result;
         }
 
+        List<ResourceForestTreeInstance> treeInstances = GenerateTreeInstances(
+            worldData,
+            startX,
+            startZ,
+            chunkSize,
+            seed,
+            settings
+        );
+
         List<Vector3> treeVertices = new List<Vector3>();
         List<int> treeTriangles = new List<int>();
         List<Color> treeColors = new List<Color>();
 
         List<Vector3> shadowVertices = new List<Vector3>();
         List<int> shadowTriangles = new List<int>();
+
+        for (int i = 0; i < treeInstances.Count; i++)
+        {
+            ResourceForestTreeInstance instance = treeInstances[i];
+            System.Random treeRandom = new System.Random(
+                seed ^
+                Mathf.RoundToInt((startX + instance.localPosition.x) * 73856093f) ^
+                Mathf.RoundToInt((startZ + instance.localPosition.z) * 19349663f) ^
+                i * 83492791
+            );
+
+            if (instance.usePine)
+            {
+                AddPineTree(
+                    treeVertices,
+                    treeTriangles,
+                    treeColors,
+                    instance.localPosition,
+                    settings,
+                    instance.yaw,
+                    treeRandom
+                );
+            }
+            else
+            {
+                AddBroadleafTree(
+                    treeVertices,
+                    treeTriangles,
+                    treeColors,
+                    instance.localPosition,
+                    settings,
+                    instance.yaw,
+                    treeRandom
+                );
+            }
+
+            if (settings.generateShadows)
+            {
+                float shadowRadius = instance.usePine
+                    ? Mathf.Lerp(settings.minCanopyRadius1, settings.maxCanopyRadius1, 0.7f)
+                    : Mathf.Lerp(settings.minCanopyRadius2, settings.maxCanopyRadius2, 0.72f);
+
+                AddShadow(
+                    shadowVertices,
+                    shadowTriangles,
+                    instance.localPosition,
+                    shadowRadius,
+                    instance.yaw,
+                    settings
+                );
+            }
+        }
+
+        if (treeVertices.Count > 0)
+        {
+            Mesh treeMesh = new Mesh();
+            treeMesh.indexFormat = IndexFormat.UInt32;
+            treeMesh.SetVertices(treeVertices);
+            treeMesh.SetTriangles(treeTriangles, 0);
+            treeMesh.SetColors(treeColors);
+            treeMesh.RecalculateNormals();
+            treeMesh.RecalculateBounds();
+            result.treeMesh = treeMesh;
+        }
+
+        if (shadowVertices.Count > 0)
+        {
+            Mesh shadowMesh = new Mesh();
+            shadowMesh.indexFormat = IndexFormat.UInt32;
+            shadowMesh.SetVertices(shadowVertices);
+            shadowMesh.SetTriangles(shadowTriangles, 0);
+            shadowMesh.RecalculateNormals();
+            shadowMesh.RecalculateBounds();
+            result.shadowMesh = shadowMesh;
+        }
+
+        return result;
+    }
+
+    public static List<ResourceForestTreeInstance> GenerateTreeInstances(
+        WorldData worldData,
+        int startX,
+        int startZ,
+        int chunkSize,
+        int seed,
+        ResourceForestTreeSettings settings
+    )
+    {
+        List<ResourceForestTreeInstance> instances = new List<ResourceForestTreeInstance>();
+
+        if (worldData == null || settings == null || !settings.enabled)
+        {
+            return instances;
+        }
 
         System.Random random = new System.Random(
             seed ^
@@ -107,83 +217,20 @@ public static class ResourceForestTreeChunkGenerator
                     continue;
                 }
 
-                float groundY = worldData.GetHeight(sampleX, sampleZ) + settings.yOffset;
-                Vector3 localPosition = new Vector3(
-                    finalWorldX - startX,
-                    groundY,
-                    finalWorldZ - startZ
-                );
-
-                bool usePine = random.NextDouble() < settings.pineChance;
-                float yaw = (float)random.NextDouble() * 360f;
-
-                if (usePine)
+                instances.Add(new ResourceForestTreeInstance
                 {
-                    AddPineTree(
-                        treeVertices,
-                        treeTriangles,
-                        treeColors,
-                        localPosition,
-                        settings,
-                        yaw,
-                        random
-                    );
-                }
-                else
-                {
-                    AddBroadleafTree(
-                        treeVertices,
-                        treeTriangles,
-                        treeColors,
-                        localPosition,
-                        settings,
-                        yaw,
-                        random
-                    );
-                }
-
-                if (settings.generateShadows)
-                {
-                    float shadowRadius = usePine
-                        ? Mathf.Lerp(settings.minCanopyRadius1, settings.maxCanopyRadius1, 0.7f)
-                        : Mathf.Lerp(settings.minCanopyRadius2, settings.maxCanopyRadius2, 0.72f);
-
-                    AddShadow(
-                        shadowVertices,
-                        shadowTriangles,
-                        localPosition,
-                        shadowRadius,
-                        yaw,
-                        settings
-                    );
-                }
+                    localPosition = new Vector3(
+                        finalWorldX - startX,
+                        worldData.GetHeight(sampleX, sampleZ) + settings.yOffset,
+                        finalWorldZ - startZ
+                    ),
+                    usePine = random.NextDouble() < settings.pineChance,
+                    yaw = (float)random.NextDouble() * 360f
+                });
             }
         }
 
-        if (treeVertices.Count > 0)
-        {
-            Mesh treeMesh = new Mesh();
-            treeMesh.indexFormat = IndexFormat.UInt32;
-            treeMesh.SetVertices(treeVertices);
-            treeMesh.SetTriangles(treeTriangles, 0);
-            treeMesh.SetColors(treeColors);
-            treeMesh.RecalculateNormals();
-            treeMesh.RecalculateBounds();
-            result.treeMesh = treeMesh;
-        }
-
-        if (shadowVertices.Count > 0)
-        {
-            Mesh shadowMesh = new Mesh();
-            shadowMesh.indexFormat = IndexFormat.UInt32;
-            shadowMesh.SetVertices(shadowVertices);
-            shadowMesh.SetTriangles(shadowTriangles, 0);
-            shadowMesh.RecalculateNormals();
-            shadowMesh.RecalculateBounds();
-            result.shadowMesh = shadowMesh;
-        }
-
-        return result;
+        return instances;
     }
 
     private static void AddPineTree(

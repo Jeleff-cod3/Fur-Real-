@@ -47,6 +47,8 @@ public class SpearTestSpawner : MonoBehaviour
     private Transform spawnAnchor;
     private bool isSpawningReplacement;
 
+    public PickupableWeapon SpearPrefab => spearPrefab;
+
     private IEnumerator Start()
     {
         for (int i = 0; i < spawnDelayFrames; i++)

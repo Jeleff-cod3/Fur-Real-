@@ -90,6 +90,21 @@ public class PlayerControllerLoose : MonoBehaviour
             gameObject.AddComponent<PlayerWeaponPickup>();
         }
 
+        if (GetComponent<PlayerCarryController>() == null)
+        {
+            gameObject.AddComponent<PlayerCarryController>();
+        }
+
+        if (GetComponent<PlayerItemPickup>() == null)
+        {
+            gameObject.AddComponent<PlayerItemPickup>();
+        }
+
+        if (GetComponent<PlayerCrafting>() == null)
+        {
+            gameObject.AddComponent<PlayerCrafting>();
+        }
+
         if (GetComponent<PlayerCombat>() == null)
         {
             gameObject.AddComponent<PlayerCombat>();

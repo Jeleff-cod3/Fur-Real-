@@ -10,6 +10,7 @@ public class PlayerWeaponPickup : MonoBehaviour
 
     private Transform weaponHolder;
     private SphereCollider pickupTrigger;
+    private PlayerCarryController carryController;
 
     private PickupableWeapon nearbyWeapon;
     private PickupableWeapon equippedWeapon;
@@ -30,7 +31,17 @@ public class PlayerWeaponPickup : MonoBehaviour
 
     private void Update()
     {
+        if (nearbyWeapon != null && !nearbyWeapon.CanBePickedUpFromWorld)
+        {
+            nearbyWeapon = null;
+        }
+
         if (Keyboard.current == null)
+        {
+            return;
+        }
+
+        if (carryController != null && carryController.WasInteractHandledThisFrame)
         {
             return;
         }
@@ -39,10 +50,17 @@ public class PlayerWeaponPickup : MonoBehaviour
         {
             if (equippedWeapon == null && nearbyWeapon != null)
             {
+                if (carryController != null && !carryController.TryClaim(nearbyWeapon))
+                {
+                    return;
+                }
+
+                carryController?.MarkInteractHandled();
                 PickUpWeapon();
             }
             else if (equippedWeapon != null)
             {
+                carryController?.MarkInteractHandled();
                 DropWeapon();
             }
         }
@@ -67,8 +85,10 @@ public class PlayerWeaponPickup : MonoBehaviour
 
     private void DropWeapon()
     {
-        equippedWeapon.Drop();
+        PickupableWeapon droppedWeapon = equippedWeapon;
         equippedWeapon = null;
+        carryController?.ReleaseIfMatches(droppedWeapon);
+        droppedWeapon.Drop();
 
         Debug.Log("Weapon dropped.");
     }
@@ -92,6 +112,7 @@ public class PlayerWeaponPickup : MonoBehaviour
 
         PickupableWeapon thrownWeapon = equippedWeapon;
         equippedWeapon = null;
+        carryController?.ReleaseIfMatches(thrownWeapon);
 
         thrownWeapon.Throw(direction);
     }
@@ -101,14 +122,33 @@ public class PlayerWeaponPickup : MonoBehaviour
         if (weapon != null && equippedWeapon == weapon)
         {
             equippedWeapon = null;
+            carryController?.ReleaseIfMatches(weapon);
         }
+    }
+
+    public bool TryPickUpSpecificWeapon(PickupableWeapon weapon)
+    {
+        if (weapon == null || weaponHolder == null || equippedWeapon != null)
+        {
+            return false;
+        }
+
+        if (carryController != null && !carryController.TryClaim(weapon))
+        {
+            return false;
+        }
+
+        equippedWeapon = weapon;
+        equippedWeapon.PickUp(weaponHolder);
+        nearbyWeapon = null;
+        return true;
     }
 
     private void OnTriggerEnter(Collider other)
     {
         PickupableWeapon weapon = other.GetComponent<PickupableWeapon>();
 
-        if (weapon != null && equippedWeapon == null && !weapon.IsBroken)
+        if (weapon != null && equippedWeapon == null && weapon.CanBePickedUpFromWorld)
         {
             nearbyWeapon = weapon;
         }
@@ -126,6 +166,15 @@ public class PlayerWeaponPickup : MonoBehaviour
 
     private void EnsureSetup()
     {
+        if (carryController == null)
+        {
+            carryController = GetComponent<PlayerCarryController>();
+            if (carryController == null)
+            {
+                carryController = gameObject.AddComponent<PlayerCarryController>();
+            }
+        }
+
         if (weaponHolder == null)
         {
             weaponHolder = FindOrCreateChild(weaponHolderName, weaponHolderLocalPosition);
