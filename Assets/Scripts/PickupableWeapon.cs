@@ -28,7 +28,7 @@ public class PickupableWeapon : MonoBehaviour
     [SerializeField] private LayerMask meleeHitLayers = ~0;
 
     [Header("Held Pose")]
-    [SerializeField] private Vector3 heldLocalPositionOffset = new Vector3(0.45f, 0.18f, 0.4f);
+    [SerializeField] private Vector3 heldLocalPositionOffset = new Vector3(0.45f, 0.1f, 0.4f);
     [SerializeField] private Vector3 heldTipDirectionLocal = new Vector3(0f, -0.18f, 1f);
     [SerializeField] private Vector3 stabTipDirectionLocal = new Vector3(0f, -0.32f, 1f);
 

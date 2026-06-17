@@ -6,6 +6,8 @@ using UnityEngine.InputSystem;
 public class TreeSpiderGrabbedVictim : MonoBehaviour
 {
     [SerializeField] private float pullStrength = 9f;
+    [SerializeField] [Range(0f, 1f)] private float scaleCompensationStrength = 0.82f;
+    [SerializeField] private Vector3 heldLocalOffset = new Vector3(0f, -0.1f, 0.22f);
 
     private PlayerHealth playerHealth;
     private Rigidbody body;
@@ -18,6 +20,8 @@ public class TreeSpiderGrabbedVictim : MonoBehaviour
     private bool originalUseGravity;
     private bool isHolding;
     private Vector3 lastLocalPosition;
+    private Vector3 originalLocalScale;
+    private Vector3 originalLossyScale;
 
     public event Action<TreeSpiderGrabbedVictim> Released;
 
@@ -94,7 +98,10 @@ public class TreeSpiderGrabbedVictim : MonoBehaviour
         struggleProgress = 0f;
         DidEscape = false;
         isHolding = true;
+        originalLocalScale = transform.localScale;
+        originalLossyScale = transform.lossyScale;
         transform.SetParent(holdPoint, true);
+        ApplyGrabVisualPose();
         lastLocalPosition = transform.localPosition;
 
         if (body != null)
@@ -127,6 +134,7 @@ public class TreeSpiderGrabbedVictim : MonoBehaviour
         isHolding = false;
         holdPoint = null;
         transform.SetParent(originalParent, true);
+        transform.localScale = originalLocalScale;
 
         if (body != null)
         {
@@ -134,5 +142,33 @@ public class TreeSpiderGrabbedVictim : MonoBehaviour
         }
 
         Released?.Invoke(this);
+    }
+
+    private void ApplyGrabVisualPose()
+    {
+        if (holdPoint == null)
+        {
+            return;
+        }
+
+        transform.localPosition = heldLocalOffset;
+
+        Vector3 parentLossyScale = holdPoint.lossyScale;
+        Vector3 fullyCompensatedScale = new Vector3(
+            SafeDivide(originalLossyScale.x, parentLossyScale.x),
+            SafeDivide(originalLossyScale.y, parentLossyScale.y),
+            SafeDivide(originalLossyScale.z, parentLossyScale.z)
+        );
+
+        transform.localScale = Vector3.Lerp(
+            transform.localScale,
+            fullyCompensatedScale,
+            scaleCompensationStrength
+        );
+    }
+
+    private static float SafeDivide(float numerator, float denominator)
+    {
+        return Mathf.Abs(denominator) > 0.0001f ? numerator / denominator : numerator;
     }
 }

@@ -78,6 +78,58 @@ public class ResourceForestTreeAnchorRegistry : MonoBehaviour
         }
     }
 
+    public bool TryReserveRandomAvailableAnchorNear(
+        Vector3 worldPosition,
+        float radius,
+        Object owner,
+        out int anchorIndex,
+        out ResourceForestTreeAnchor anchor)
+    {
+        anchorIndex = -1;
+        anchor = default;
+
+        if (!IsReady || owner == null)
+        {
+            return false;
+        }
+
+        float radiusSqr = Mathf.Max(0f, radius) * Mathf.Max(0f, radius);
+        List<int> candidates = ListPool<int>.Get();
+
+        try
+        {
+            for (int i = 0; i < anchors.Count; i++)
+            {
+                if (!IsAnchorAvailable(i))
+                {
+                    continue;
+                }
+
+                if ((anchors[i].trunkBasePosition - worldPosition).sqrMagnitude > radiusSqr)
+                {
+                    continue;
+                }
+
+                candidates.Add(i);
+            }
+
+            if (candidates.Count == 0)
+            {
+                return false;
+            }
+
+            int chosenIndex = candidates[Random.Range(0, candidates.Count)];
+            reservations[chosenIndex] = owner;
+            anchorIndex = chosenIndex;
+            anchor = anchors[chosenIndex];
+            return true;
+        }
+        finally
+        {
+            ListPool<int>.Release(candidates);
+        }
+    }
+
     public bool TryReserveNearestAvailableAnchor(
         Vector3 nearPosition,
         Object owner,

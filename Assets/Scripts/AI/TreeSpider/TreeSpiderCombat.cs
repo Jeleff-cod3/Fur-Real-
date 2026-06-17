@@ -11,8 +11,8 @@ public class TreeSpiderCombat : MonoBehaviour
     [Header("Timings")]
     [SerializeField] private float biteWindup = 0.18f;
     [SerializeField] private float biteRecovery = 0.32f;
-    [SerializeField] private float grabChargeTime = 0.65f;
-    [SerializeField] private float grabHoldTime = 2.5f;
+    [SerializeField] private float grabChargeTime = 0.85f;
+    [SerializeField] private float grabHoldTime = 4.25f;
     [SerializeField] private float dropDelay = 0.16f;
     [SerializeField] private float dropRecovery = 0.28f;
 
@@ -25,7 +25,7 @@ public class TreeSpiderCombat : MonoBehaviour
     [SerializeField] private Transform mouth;
     [SerializeField] private float biteRadius = 1f;
     [SerializeField] private float grabRadius = 1.2f;
-    [SerializeField] private float grabEscapeStruggle = 3.5f;
+    [SerializeField] private float grabEscapeStruggle = 4.2f;
     [SerializeField] private LayerMask playerLayerMask = ~0;
 
     private TreeSpiderState state;

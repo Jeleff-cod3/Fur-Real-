@@ -14,6 +14,10 @@ public class TreeSpiderSpawner : MonoBehaviour
     [SerializeField] private int maxAliveSpiders = 10;
     [SerializeField] private float spawnCheckInterval = 2f;
 
+    [Header("Spawn Targeting")]
+    [SerializeField] private float preferredSpawnDistanceFromPlayer = 70f;
+    [SerializeField] private float extendedSpawnDistanceFromPlayer = 120f;
+
     private readonly List<TreeSpiderBrain> activeSpiders = new List<TreeSpiderBrain>();
     private readonly List<Transform> playerBuffer = new List<Transform>();
 
@@ -133,7 +137,7 @@ public class TreeSpiderSpawner : MonoBehaviour
 
     private bool SpawnSpider()
     {
-        if (!treeRegistry.TryReserveRandomAvailableAnchor(this, out int treeIndex, out ResourceForestTreeAnchor anchor))
+        if (!TryReserveSpawnAnchor(out int treeIndex, out ResourceForestTreeAnchor anchor))
         {
             return false;
         }
@@ -167,6 +171,76 @@ public class TreeSpiderSpawner : MonoBehaviour
         brain.InitializeInTree(treeRegistry, treeIndex, reservedAnchor);
         activeSpiders.Add(brain);
         return true;
+    }
+
+    private bool TryReserveSpawnAnchor(out int treeIndex, out ResourceForestTreeAnchor anchor)
+    {
+        treeIndex = -1;
+        anchor = default;
+
+        MultiplayerPrototype.GetActivePlayerTransforms(playerBuffer);
+
+        List<Transform> resourcePlayers = null;
+
+        foreach (Transform playerTransform in playerBuffer)
+        {
+            if (playerTransform == null)
+            {
+                continue;
+            }
+
+            if (!worldChunkRenderer.TryGetZoneAtWorldPosition(playerTransform.position, out TerrainZone zone) ||
+                zone != TerrainZone.Resource)
+            {
+                continue;
+            }
+
+            resourcePlayers ??= new List<Transform>();
+            resourcePlayers.Add(playerTransform);
+        }
+
+        if (resourcePlayers != null && resourcePlayers.Count > 0)
+        {
+            for (int i = 0; i < resourcePlayers.Count * 2; i++)
+            {
+                Transform centerPlayer = resourcePlayers[Random.Range(0, resourcePlayers.Count)];
+                if (centerPlayer == null)
+                {
+                    continue;
+                }
+
+                if (treeRegistry.TryReserveRandomAvailableAnchorNear(
+                    centerPlayer.position,
+                    preferredSpawnDistanceFromPlayer,
+                    this,
+                    out treeIndex,
+                    out anchor))
+                {
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < resourcePlayers.Count; i++)
+            {
+                Transform centerPlayer = resourcePlayers[i];
+                if (centerPlayer == null)
+                {
+                    continue;
+                }
+
+                if (treeRegistry.TryReserveRandomAvailableAnchorNear(
+                    centerPlayer.position,
+                    extendedSpawnDistanceFromPlayer,
+                    this,
+                    out treeIndex,
+                    out anchor))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return treeRegistry.TryReserveRandomAvailableAnchor(this, out treeIndex, out anchor);
     }
 
     private GameObject GetOrCreateFallbackTemplate()

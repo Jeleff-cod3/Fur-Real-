@@ -234,7 +234,7 @@ MonoBehaviour:
   meleeHitLayers:
     serializedVersion: 2
     m_Bits: 4294967295
-  heldLocalPositionOffset: {x: 0.05, y: 0.18, z: 0.4}
+  heldLocalPositionOffset: {x: 0.05, y: 0.1, z: 0.4}
   heldTipDirectionLocal: {x: 0, y: -0.18, z: 1}
   stabTipDirectionLocal: {x: 0, y: -0.32, z: 1}
   spearTip: {fileID: 3036736932429531921}
