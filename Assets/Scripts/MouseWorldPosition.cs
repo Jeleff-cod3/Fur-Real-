@@ -16,7 +16,7 @@ public class MouseWorldPosition : MonoBehaviour
     [Header("Raycast")]
     [SerializeField] private float maxRayDistance = 1000f;
     [SerializeField] private float markerHeightOffset = 0.03f;
-    [SerializeField] private float markerScale = 1f;
+    [SerializeField] private float markerScale = 0.3f;
     [SerializeField] private bool showDebugRay = false;
     [SerializeField] private bool createMarkerIfMissing = true;
 

@@ -2856,6 +2856,11 @@ public sealed class LocalCubeController : MonoBehaviour
             weaponHolderLocalPosition
         );
 
+        Transform itemHolder = CreateChildIfMissing(
+            "ItemHolder",
+            new Vector3(0.3f, 0.12f, 0.42f)
+        );
+
         Transform attackPoint = CreateChildIfMissing(
             "AttackPoint",
             attackPointLocalPosition
@@ -2883,6 +2888,18 @@ public sealed class LocalCubeController : MonoBehaviour
             weaponPickup = gameObject.AddComponent<PlayerWeaponPickup>();
         }
 
+        if (GetComponent<PlayerCarryController>() == null)
+        {
+            gameObject.AddComponent<PlayerCarryController>();
+        }
+
+        PlayerItemPickup itemPickup = GetComponent<PlayerItemPickup>();
+
+        if (itemPickup == null)
+        {
+            itemPickup = gameObject.AddComponent<PlayerItemPickup>();
+        }
+
         if (mouseAim == null)
         {
             mouseAim = GetComponent<PlayerMouseAim>();
@@ -2894,6 +2911,7 @@ public sealed class LocalCubeController : MonoBehaviour
         }
 
         weaponPickup.Initialize(weaponHolder);
+        itemPickup.Initialize(itemHolder);
 
         PlayerCombat combat = GetComponent<PlayerCombat>();
 
@@ -2926,6 +2944,11 @@ public sealed class LocalCubeController : MonoBehaviour
         if (GetComponent<PlayerHealthBarUI>() == null)
         {
             gameObject.AddComponent<PlayerHealthBarUI>();
+        }
+
+        if (GetComponent<PlayerCrafting>() == null)
+        {
+            gameObject.AddComponent<PlayerCrafting>();
         }
 
         gameObject.tag = "Player";

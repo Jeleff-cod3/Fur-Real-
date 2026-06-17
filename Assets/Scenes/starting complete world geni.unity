@@ -387,6 +387,7 @@ MonoBehaviour:
   player: {fileID: 967818619}
   terrainMaterial: {fileID: 2100000, guid: 09da3d86f96bc524eb6088540e18b191, type: 2}
   cavePrefab: {fileID: 0}
+  craftedSpearPrefab: {fileID: 1716549763528007691, guid: 86eea1bb0035dad4dbaece6c3416c92f, type: 3}
   mapSize: 1000
   chunkSize: 50
   viewDistance: 2
