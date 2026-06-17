@@ -86,6 +86,11 @@ public class WorldChunkRenderer : MonoBehaviour
     private WorldData worldData;
 
     public bool IsNavMeshReady { get; private set; }
+    public WorldData WorldData => worldData;
+    public int WorldSeed => seed;
+    public int ChunkWorldSize => chunkSize;
+    public int WorldMapSize => mapSize;
+    public ResourceForestTreeSettings ResourceForestSettings => resourceForestTreeSettings;
 
     private readonly Dictionary<Vector2Int, GameObject> activeChunks =
         new Dictionary<Vector2Int, GameObject>();
@@ -1171,6 +1176,27 @@ public class WorldChunkRenderer : MonoBehaviour
         }
 
         zone = worldData.GetZone(x, z);
+        return true;
+    }
+
+    public bool TryGetGroundHeightAtWorldPosition(Vector3 worldPosition, out float height)
+    {
+        height = 0f;
+
+        if (worldData == null)
+        {
+            return false;
+        }
+
+        int x = Mathf.RoundToInt(worldPosition.x);
+        int z = Mathf.RoundToInt(worldPosition.z);
+
+        if (!worldData.IsInsideMap(x, z))
+        {
+            return false;
+        }
+
+        height = worldData.GetHeight(x, z);
         return true;
     }
 

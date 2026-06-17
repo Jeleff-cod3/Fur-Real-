@@ -1586,6 +1586,37 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         return FindClosestFallbackPlayerTransform(origin);
     }
 
+    public static void GetActivePlayerTransforms(List<Transform> results)
+    {
+        if (results == null)
+        {
+            return;
+        }
+
+        results.Clear();
+
+        if (Instance != null)
+        {
+            Instance.CollectRuntimePlayerTransforms(results);
+            if (results.Count > 0)
+            {
+                return;
+            }
+        }
+
+        PlayerHealth[] playerHealths = FindObjectsByType<PlayerHealth>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        foreach (PlayerHealth playerHealth in playerHealths)
+        {
+            AddUniquePlayerTransform(results, playerHealth != null ? playerHealth.transform : null);
+        }
+
+        GameObject[] taggedPlayers = GameObject.FindGameObjectsWithTag("Player");
+        foreach (GameObject taggedPlayer in taggedPlayers)
+        {
+            AddUniquePlayerTransform(results, taggedPlayer != null ? taggedPlayer.transform : null);
+        }
+    }
+
     public static bool TryGetLocalRespawnPosition(out Vector3 respawnPosition)
     {
         if (Instance != null)
@@ -1614,6 +1645,16 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         return closest;
+    }
+
+    private void CollectRuntimePlayerTransforms(List<Transform> results)
+    {
+        AddUniquePlayerTransform(results, localCube != null ? localCube.transform : null);
+
+        foreach (RemoteCubeController remote in remoteCubes.Values)
+        {
+            AddUniquePlayerTransform(results, remote != null ? remote.transform : null);
+        }
     }
 
     private static Transform FindClosestFallbackPlayerTransform(Vector3 origin)
@@ -1655,6 +1696,19 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         closest = candidate;
         closestDistanceSqr = distanceSqr;
+    }
+
+    private static void AddUniquePlayerTransform(List<Transform> results, Transform candidate)
+    {
+        if (results == null || candidate == null || !candidate.gameObject.activeInHierarchy)
+        {
+            return;
+        }
+
+        if (!results.Contains(candidate))
+        {
+            results.Add(candidate);
+        }
     }
 
     private static bool IsMammothEnemy(EnemyHealth enemyHealth)
