@@ -17,6 +17,10 @@ public class WorldChunkRenderer : MonoBehaviour
 
     [Header("Full Map NavMesh Baking")]
     public bool renderFullMapBeforeNavMeshBake = true;
+    public bool useTerrainOnlyInitialNavMeshBake = true;
+    public bool logWorldHeightRange = false;
+    [Min(1)]
+    public int initialNavMeshTerrainSampleStep = 4;
     public bool hideChunksOutsideViewAfterBake = true;
     public bool unloadDistantChunksAfterInitialBake = true;
     public int initialChunkBatchSize = 6;
@@ -115,6 +119,7 @@ public class WorldChunkRenderer : MonoBehaviour
         new HashSet<Vector2Int>();
 
     private GameObject caveInstance;
+    private GameObject navMeshBakeRoot;
     private PickupableWeapon cachedFallbackSpearPrefab;
 
     private readonly Dictionary<string, PickupableItem> activeResourceItems =
@@ -157,7 +162,10 @@ public class WorldChunkRenderer : MonoBehaviour
         BootstrapStatus = "Inspecting terrain...";
         BootstrapProgress = 0.16f;
         yield return null;
-        DebugWorldHeightRange();
+        if (logWorldHeightRange)
+        {
+            DebugWorldHeightRange();
+        }
 
         BootstrapStatus = "Placing players...";
         BootstrapProgress = 0.22f;
@@ -167,7 +175,9 @@ public class WorldChunkRenderer : MonoBehaviour
 
         if (renderFullMapBeforeNavMeshBake)
         {
-            BootstrapStatus = "Building world chunks...";
+            BootstrapStatus = useTerrainOnlyInitialNavMeshBake
+                ? "Building navigation terrain..."
+                : "Building world chunks...";
             yield return RenderAllChunksForNavMeshBakeRoutine();
         }
         else
@@ -183,12 +193,20 @@ public class WorldChunkRenderer : MonoBehaviour
         yield return null;
         BuildWorldNavMesh();
 
+        DestroyNavMeshBakeChunks();
+
         BootstrapStatus = "Snapping spawn positions...";
         BootstrapProgress = 0.93f;
         yield return null;
         SnapPlayerToNavMesh();
 
-        if (renderFullMapBeforeNavMeshBake && hideChunksOutsideViewAfterBake)
+        if (renderFullMapBeforeNavMeshBake && useTerrainOnlyInitialNavMeshBake)
+        {
+            BootstrapStatus = "Loading nearby chunks...";
+            UpdateVisibleChunks();
+            yield return null;
+        }
+        else if (renderFullMapBeforeNavMeshBake && hideChunksOutsideViewAfterBake)
         {
             BootstrapStatus = unloadDistantChunksAfterInitialBake
                 ? "Unloading distant chunks..."
@@ -298,15 +316,36 @@ public class WorldChunkRenderer : MonoBehaviour
         int processedChunks = 0;
         int batchSize = Mathf.Max(1, initialChunkBatchSize);
 
+        if (useTerrainOnlyInitialNavMeshBake)
+        {
+            if (navMeshBakeRoot != null)
+            {
+                Destroy(navMeshBakeRoot);
+            }
+
+            navMeshBakeRoot = new GameObject("Temporary NavMesh Bake Terrain");
+            navMeshBakeRoot.transform.SetParent(transform, false);
+            navMeshBakeRoot.transform.localPosition = Vector3.zero;
+            navMeshBakeRoot.transform.localRotation = Quaternion.identity;
+            navMeshBakeRoot.transform.localScale = Vector3.one;
+        }
+
         for (int z = 0; z < chunksPerAxis; z++)
         {
             for (int x = 0; x < chunksPerAxis; x++)
             {
                 Vector2Int chunkCoord = new Vector2Int(x, z);
 
-                if (IsChunkInsideMap(chunkCoord) && !activeChunks.ContainsKey(chunkCoord))
+                if (IsChunkInsideMap(chunkCoord))
                 {
-                    CreateChunk(chunkCoord);
+                    if (useTerrainOnlyInitialNavMeshBake)
+                    {
+                        CreateNavMeshBakeChunk(chunkCoord);
+                    }
+                    else if (!activeChunks.ContainsKey(chunkCoord))
+                    {
+                        CreateChunk(chunkCoord);
+                    }
                 }
 
                 processedChunks++;
@@ -315,16 +354,38 @@ public class WorldChunkRenderer : MonoBehaviour
                 {
                     float chunkProgress = Mathf.Clamp01(processedChunks / (float)totalChunks);
                     BootstrapProgress = Mathf.Lerp(0.28f, 0.78f, chunkProgress);
-                    BootstrapStatus = $"Building world chunks... {processedChunks}/{totalChunks}";
+                    BootstrapStatus = useTerrainOnlyInitialNavMeshBake
+                        ? $"Building navigation terrain... {processedChunks}/{totalChunks}"
+                        : $"Building world chunks... {processedChunks}/{totalChunks}";
                     yield return null;
                 }
             }
         }
 
         BootstrapProgress = 0.78f;
-        BootstrapStatus = $"Building world chunks... {totalChunks}/{totalChunks}";
+        BootstrapStatus = useTerrainOnlyInitialNavMeshBake
+            ? $"Building navigation terrain... {totalChunks}/{totalChunks}"
+            : $"Building world chunks... {totalChunks}/{totalChunks}";
 
-        Debug.Log($"Rendered {activeChunks.Count} chunks before NavMesh bake.");
+        if (useTerrainOnlyInitialNavMeshBake)
+        {
+            Debug.Log($"Built {totalChunks} temporary terrain chunks for NavMesh bake.");
+        }
+        else
+        {
+            Debug.Log($"Rendered {activeChunks.Count} chunks before NavMesh bake.");
+        }
+    }
+
+    private void DestroyNavMeshBakeChunks()
+    {
+        if (navMeshBakeRoot == null)
+        {
+            return;
+        }
+
+        Destroy(navMeshBakeRoot);
+        navMeshBakeRoot = null;
     }
 
     private void BuildWorldNavMesh()
@@ -581,6 +642,39 @@ public class WorldChunkRenderer : MonoBehaviour
         CreatePickupResourcesForChunk(chunkObject, chunkCoord, startX, startZ);
 
         activeChunks.Add(chunkCoord, chunkObject);
+    }
+
+    private void CreateNavMeshBakeChunk(Vector2Int chunkCoord)
+    {
+        if (navMeshBakeRoot == null)
+        {
+            return;
+        }
+
+        int startX = chunkCoord.x * chunkSize;
+        int startZ = chunkCoord.y * chunkSize;
+
+        GameObject chunkObject = new GameObject($"NavMesh Bake Chunk {chunkCoord.x}, {chunkCoord.y}");
+        int terrainLayer = LayerMask.NameToLayer(groundLayerName);
+
+        if (terrainLayer >= 0)
+        {
+            chunkObject.layer = terrainLayer;
+        }
+
+        chunkObject.transform.SetParent(navMeshBakeRoot.transform, false);
+        chunkObject.transform.localPosition = new Vector3(startX, 0f, startZ);
+        chunkObject.transform.localRotation = Quaternion.identity;
+        chunkObject.transform.localScale = Vector3.one;
+
+        MeshCollider meshCollider = chunkObject.AddComponent<MeshCollider>();
+        meshCollider.sharedMesh = MeshGenerator.GenerateCollisionChunkMesh(
+            worldData,
+            startX,
+            startZ,
+            chunkSize,
+            initialNavMeshTerrainSampleStep
+        );
     }
 
     private void MarkObjectAsNotWalkable(GameObject obj)

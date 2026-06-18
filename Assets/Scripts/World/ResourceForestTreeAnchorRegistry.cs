@@ -4,6 +4,8 @@ using UnityEngine;
 
 public class ResourceForestTreeAnchorRegistry : MonoBehaviour
 {
+    [SerializeField] private int buildChunksPerFrame = 8;
+
     private readonly List<ResourceForestTreeAnchor> anchors = new List<ResourceForestTreeAnchor>();
     private readonly Dictionary<int, Object> reservations = new Dictionary<int, Object>();
 
@@ -234,10 +236,10 @@ public class ResourceForestTreeAnchorRegistry : MonoBehaviour
             yield return null;
         }
 
-        BuildAnchors();
+        yield return BuildAnchorsRoutine();
     }
 
-    private void BuildAnchors()
+    private IEnumerator BuildAnchorsRoutine()
     {
         anchors.Clear();
         reservations.Clear();
@@ -248,12 +250,14 @@ public class ResourceForestTreeAnchorRegistry : MonoBehaviour
 
         if (worldData == null || settings == null || !settings.enabled)
         {
-            return;
+            yield break;
         }
 
         int mapSize = worldChunkRenderer.WorldMapSize;
         int chunkSize = worldChunkRenderer.ChunkWorldSize;
         int seed = worldChunkRenderer.WorldSeed;
+        int chunksPerFrame = Mathf.Max(1, buildChunksPerFrame);
+        int processedChunks = 0;
 
         for (int startZ = 0; startZ < mapSize; startZ += chunkSize)
         {
@@ -268,6 +272,12 @@ public class ResourceForestTreeAnchorRegistry : MonoBehaviour
                     settings,
                     anchors
                 );
+
+                processedChunks++;
+                if (processedChunks % chunksPerFrame == 0)
+                {
+                    yield return null;
+                }
             }
         }
 
