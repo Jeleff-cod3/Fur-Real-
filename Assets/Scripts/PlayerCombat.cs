@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -12,8 +13,11 @@ public class PlayerCombat : MonoBehaviour
     private Transform attackPoint;
     private LayerMask enemyLayer;
     private PlayerMouseAim mouseAim;
+    private ProceduralPlayerRig proceduralRig;
+    private Coroutine throwRoutine;
 
     private float nextAttackTime;
+    private const float ThrowWindupDelay = 1.2f;
 
     private void Awake()
     {
@@ -42,7 +46,7 @@ public class PlayerCombat : MonoBehaviour
 
         if (Mouse.current.rightButton.wasPressedThisFrame)
         {
-            TryThrowWeapon();
+            TryStartThrowWeapon();
         }
     }
 
@@ -73,9 +77,14 @@ public class PlayerCombat : MonoBehaviour
         Debug.Log("Spear attack started. Damage now depends on spear tip collision.");
     }
 
-    private void TryThrowWeapon()
+    private void TryStartThrowWeapon()
     {
         if (weaponPickup == null || !weaponPickup.HasWeapon)
+        {
+            return;
+        }
+
+        if (throwRoutine != null)
         {
             return;
         }
@@ -88,9 +97,33 @@ public class PlayerCombat : MonoBehaviour
             FaceDirectionImmediately(aimedDirection);
         }
 
+        throwRoutine = StartCoroutine(ThrowWeaponRoutine(throwDirection));
+    }
+
+    private IEnumerator ThrowWeaponRoutine(Vector3 throwDirection)
+    {
+        if (proceduralRig == null)
+        {
+            proceduralRig = GetComponent<ProceduralPlayerRig>();
+        }
+
+        if (proceduralRig != null)
+        {
+            proceduralRig.PlayThrowWindup(ThrowWindupDelay, throwDirection);
+        }
+
+        yield return new WaitForSeconds(ThrowWindupDelay);
+
+        if (weaponPickup == null || !weaponPickup.HasWeapon)
+        {
+            throwRoutine = null;
+            yield break;
+        }
+
         weaponPickup.ThrowEquippedWeapon(throwDirection);
 
         Debug.Log("Spear thrown.");
+        throwRoutine = null;
     }
 
     private void EnsureSetup()
@@ -110,6 +143,11 @@ public class PlayerCombat : MonoBehaviour
         if (mouseAim == null)
         {
             mouseAim = gameObject.AddComponent<PlayerMouseAim>();
+        }
+
+        if (proceduralRig == null)
+        {
+            proceduralRig = GetComponent<ProceduralPlayerRig>();
         }
 
         if (attackPoint == null)

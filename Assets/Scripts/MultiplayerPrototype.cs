@@ -8,6 +8,9 @@ using UnityEngine.AI;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public sealed class MultiplayerPrototype : MonoBehaviour
 {
@@ -35,7 +38,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private const float LobbyMusicVolume = 0.38f;
     private const float InGameMusicVolume = 0.07f;
     private const float MusicFadeSpeed = 0.8f;
+    private const float MusicLoopRestartPadding = 0.08f;
     private const string BuiltInFontName = "LegacyRuntime.ttf";
+    private const string PlayerPrefabAssetPath = "Assets/Prefab_objects/Player_NEW.prefab";
+    private const string PlayerPrefabResourcePath = "Player_NEW";
     private const int DefaultMaxPlayers = 4;
     private static Font cachedUiFont;
     private static Shader cachedObjectShader;
@@ -49,6 +55,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private static readonly Color AccentCool = new Color(0.23f, 0.4f, 0.34f, 0.98f);
     private static readonly Color Success = new Color(0.34f, 0.48f, 0.2f, 0.98f);
     private static readonly Color MutedText = new Color(0.34f, 0.27f, 0.19f, 0.92f);
+    private static readonly Vector2 MenuPanelAnchoredPosition = new Vector2(0f, -42f);
 
     private CaveGameApiClient api;
     private CaveGameSocketClient lobbySocket;
@@ -69,6 +76,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private bool hasSentInitialState;
     private Vector3 lastSentPosition;
     private Vector3 lastSentEulerAngles;
+    private Vector3 lastSentMoveTarget;
+    private Vector3 lastSentAimTarget;
+    private int lastSentActionSeq;
     private float nextGamePingTime;
     private float nextLobbyPingTime;
     private float nextHudRefreshTime;
@@ -276,12 +286,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             }
 
             nextStateSendTime = Time.unscaledTime + StateSendInterval;
-            PlayerStateDto state = PlayerStateDto.FromTransform(
+            PlayerStateDto state = PlayerStateDto.FromProceduralPlayer(
                 outboundPlayerId,
                 localMember != null ? localMember.userId : (currentUser != null ? currentUser.id : 0),
                 ++stateSeq,
-                localCube.transform,
-                localCube.Velocity
+                localCube.Rig
             );
             gameSocket.SendJson(JsonUtility.ToJson(state));
             MarkStateSent(Time.unscaledTime);
@@ -812,7 +821,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         GameObject local = CreatePlayerCube("Local Player Cube", spawn, GetPlayerColor(localKey), true);
         localCube = local.GetComponent<LocalCubeController>();
         localCube.Setup(camera.transform);
-        RegisterWorldChunkRendererPlayer(localCube.transform, true);
+        RegisterWorldChunkRendererPlayer(localCube.TrackedTransform, true);
     }
 
     private void PreSpawnRemotePlayers(GameStartedDto start)
@@ -849,7 +858,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             );
             RemoteCubeController remote = remoteObject.GetComponent<RemoteCubeController>();
             remoteCubes[key] = remote;
-            RegisterWorldChunkRendererPlayer(remote.transform, false);
+            RegisterWorldChunkRendererPlayer(remote.TrackedTransform, false);
             remoteStatesSpawned++;
             NetLog($"Pre-spawned remote cube key={key}, slot={player.slot}, userId={player.userId}, pos={remoteObject.transform.position}");
         }
@@ -1087,7 +1096,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             );
             remote = remoteObject.GetComponent<RemoteCubeController>();
             remoteCubes[remoteKey] = remote;
-            RegisterWorldChunkRendererPlayer(remote.transform, false);
+            RegisterWorldChunkRendererPlayer(remote.TrackedTransform, false);
             remoteStatesSpawned++;
             if (logRemoteStateDecisions)
             {
@@ -1177,7 +1186,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
-        worldChunkRenderer?.UnregisterTrackedPlayer(remote.transform);
+        worldChunkRenderer?.UnregisterTrackedPlayer(remote.TrackedTransform);
         Destroy(remote.gameObject);
         remoteCubes.Remove(playerId);
     }
@@ -1217,14 +1226,14 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         if (localCube != null)
         {
-            worldChunkRenderer.UnregisterTrackedPlayer(localCube.transform);
+            worldChunkRenderer.UnregisterTrackedPlayer(localCube.TrackedTransform);
         }
 
         foreach (RemoteCubeController remote in remoteCubes.Values)
         {
             if (remote != null)
             {
-                worldChunkRenderer.UnregisterTrackedPlayer(remote.transform);
+                worldChunkRenderer.UnregisterTrackedPlayer(remote.TrackedTransform);
             }
         }
     }
@@ -1271,21 +1280,54 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return true;
         }
 
-        Transform cubeTransform = localCube.transform;
+        Transform cubeTransform = localCube.TrackedTransform;
         if ((cubeTransform.position - lastSentPosition).sqrMagnitude >= MinPositionDeltaSqr)
         {
             return true;
         }
 
-        return Quaternion.Angle(Quaternion.Euler(lastSentEulerAngles), cubeTransform.rotation) >= MinRotationDelta;
+        if (Quaternion.Angle(Quaternion.Euler(lastSentEulerAngles), cubeTransform.rotation) >= MinRotationDelta)
+        {
+            return true;
+        }
+
+        ProceduralPlayerRig rig = localCube.Rig;
+        if (rig != null)
+        {
+            if (rig.RunTarget != null && (rig.RunTarget.position - lastSentMoveTarget).sqrMagnitude >= MinPositionDeltaSqr)
+            {
+                return true;
+            }
+
+            if (rig.AimTarget != null && (rig.AimTarget.position - lastSentAimTarget).sqrMagnitude >= MinPositionDeltaSqr)
+            {
+                return true;
+            }
+
+            if (rig.ActionSequence != lastSentActionSeq)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void MarkStateSent(float now)
     {
         hasSentInitialState = true;
         lastStateSendTime = now;
-        lastSentPosition = localCube.transform.position;
-        lastSentEulerAngles = localCube.transform.eulerAngles;
+        Transform cubeTransform = localCube.TrackedTransform;
+        lastSentPosition = cubeTransform.position;
+        lastSentEulerAngles = cubeTransform.eulerAngles;
+
+        ProceduralPlayerRig rig = localCube.Rig;
+        if (rig != null)
+        {
+            lastSentMoveTarget = rig.RunTarget != null ? rig.RunTarget.position : cubeTransform.position;
+            lastSentAimTarget = rig.AimTarget != null ? rig.AimTarget.position : cubeTransform.position + cubeTransform.forward;
+            lastSentActionSeq = rig.ActionSequence;
+        }
     }
 
     private bool IsLocalMammothAuthority()
@@ -1687,11 +1729,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         Transform closest = null;
         float closestDistanceSqr = float.PositiveInfinity;
 
-        ConsiderPlayerTransform(localCube != null ? localCube.transform : null, origin, ref closest, ref closestDistanceSqr);
+        ConsiderPlayerTransform(localCube != null ? localCube.TrackedTransform : null, origin, ref closest, ref closestDistanceSqr);
 
         foreach (RemoteCubeController remote in remoteCubes.Values)
         {
-            ConsiderPlayerTransform(remote != null ? remote.transform : null, origin, ref closest, ref closestDistanceSqr);
+            ConsiderPlayerTransform(remote != null ? remote.TrackedTransform : null, origin, ref closest, ref closestDistanceSqr);
         }
 
         return closest;
@@ -1699,11 +1741,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void CollectRuntimePlayerTransforms(List<Transform> results)
     {
-        AddUniquePlayerTransform(results, localCube != null ? localCube.transform : null);
+        AddUniquePlayerTransform(results, localCube != null ? localCube.TrackedTransform : null);
 
         foreach (RemoteCubeController remote in remoteCubes.Values)
         {
-            AddUniquePlayerTransform(results, remote != null ? remote.transform : null);
+            AddUniquePlayerTransform(results, remote != null ? remote.TrackedTransform : null);
         }
     }
 
@@ -1802,6 +1844,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         hasSentInitialState = false;
         lastSentPosition = Vector3.zero;
         lastSentEulerAngles = Vector3.zero;
+        lastSentMoveTarget = Vector3.zero;
+        lastSentAimTarget = Vector3.zero;
+        lastSentActionSeq = 0;
         nextMammothStateSendTime = 0f;
         lastMammothStateSendTime = 0f;
         hasSentInitialMammothState = false;
@@ -2117,6 +2162,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.sizeDelta = MenuPanelSize;
+        rect.anchoredPosition = MenuPanelAnchoredPosition;
 
         CreatePanelFill(panel.transform, "Inset", new Vector2(18f, 18f), new Vector2(-18f, -18f), PanelSoft, new Color(Ink.r, Ink.g, Ink.b, 0.25f));
         if (ornate)
@@ -2742,11 +2788,34 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private GameObject CreatePlayerCube(string objectName, Vector3 position, Color color, bool isLocal)
     {
-        GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        cube.name = objectName;
-        cube.transform.SetParent(worldRoot.transform);
-        cube.transform.position = position;
-        SetRendererColor(cube, color);
+        GameObject playerPrefab = ResolveProceduralPlayerPrefab();
+        GameObject cube;
+
+        if (playerPrefab != null)
+        {
+            cube = Instantiate(playerPrefab, position, Quaternion.identity, worldRoot.transform);
+            cube.name = objectName.Replace("Cube", "Procedural");
+            cube.SetActive(true);
+            SetRendererColorRecursive(cube, color);
+        }
+        else
+        {
+            cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = objectName;
+            cube.transform.SetParent(worldRoot.transform);
+            cube.transform.position = position;
+            SetRendererColor(cube, color);
+        }
+
+        ProceduralPlayerRig rig = cube.GetComponent<ProceduralPlayerRig>();
+        if (rig == null)
+        {
+            rig = cube.AddComponent<ProceduralPlayerRig>();
+        }
+
+        rig.Configure(isLocal);
+        rig.FitVisualsToCubeHeight();
+        rig.PlaceCoreAt(position);
 
         Rigidbody body = cube.GetComponent<Rigidbody>();
         if (body == null)
@@ -2757,8 +2826,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         body.freezeRotation = true;
         if (isLocal)
         {
-            body.isKinematic = false;
-            body.useGravity = true;
+            bool proceduralMovement = rig != null && rig.HasLegController;
+            body.isKinematic = proceduralMovement;
+            body.useGravity = !proceduralMovement;
             if (cube.GetComponent<LocalCubeController>() == null)
             {
                 cube.AddComponent<LocalCubeController>();
@@ -2776,6 +2846,64 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         return cube;
+    }
+
+    private GameObject ResolveProceduralPlayerPrefab()
+    {
+        GameObject resourcesPrefab = Resources.Load<GameObject>(PlayerPrefabResourcePath);
+        if (resourcesPrefab != null)
+        {
+            return resourcesPrefab;
+        }
+
+        GameObject sceneTemplate = FindScenePlayerTemplate();
+        if (sceneTemplate != null)
+        {
+            return sceneTemplate;
+        }
+
+#if UNITY_EDITOR
+        return AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabAssetPath);
+#else
+        return null;
+#endif
+    }
+
+    private GameObject FindScenePlayerTemplate()
+    {
+        ProceduralPlayerRig[] rigs = FindObjectsByType<ProceduralPlayerRig>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        foreach (ProceduralPlayerRig rig in rigs)
+        {
+            if (rig == null ||
+                rig.transform.IsChildOf(transform) ||
+                (worldRoot != null && rig.transform.IsChildOf(worldRoot.transform)))
+            {
+                continue;
+            }
+
+            return rig.gameObject;
+        }
+
+        AutoRunLegPairController[] legControllers = FindObjectsByType<AutoRunLegPairController>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        foreach (AutoRunLegPairController legController in legControllers)
+        {
+            if (legController == null ||
+                legController.transform.IsChildOf(transform) ||
+                (worldRoot != null && legController.transform.IsChildOf(worldRoot.transform)))
+            {
+                continue;
+            }
+
+            return legController.transform.root.gameObject;
+        }
+
+        return null;
     }
 
     private Vector3 ResolveRuntimeSpawnAnchor()
@@ -2925,8 +3053,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         rect.anchorMin = new Vector2(0.5f, 1f);
         rect.anchorMax = new Vector2(0.5f, 1f);
         rect.pivot = new Vector2(0.5f, 1f);
-        rect.sizeDelta = new Vector2(760f, 170f);
-        rect.anchoredPosition = new Vector2(0f, -78f);
+        rect.sizeDelta = new Vector2(760f, 180f);
+        rect.anchoredPosition = new Vector2(0f, -20f);
 
         Text titleShadow = CreateWordmarkText(root.transform, "Fur Real?", 72, new Color(0f, 0f, 0f, 0.24f), new Vector2(5f, -5f));
         titleShadow.alignment = TextAnchor.MiddleCenter;
@@ -2936,7 +3064,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         title.alignment = TextAnchor.MiddleCenter;
         title.raycastTarget = false;
 
-        Text subtitle = CreateWordmarkText(root.transform, "old-world lobby and hunting party", 20, new Color(0.93f, 0.86f, 0.7f, 0.95f), new Vector2(0f, -48f));
+        Text subtitle = CreateWordmarkText(root.transform, "old-world lobby and hunting party", 20, new Color(0.93f, 0.86f, 0.7f, 0.95f), new Vector2(0f, -58f));
         subtitle.alignment = TextAnchor.MiddleCenter;
         subtitle.raycastTarget = false;
         return root;
@@ -3042,12 +3170,33 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             return;
         }
 
-        if (!lobbyMusicSource.isPlaying)
+        if (ShouldRestartLobbyMusic())
         {
+            lobbyMusicSource.time = 0f;
             lobbyMusicSource.Play();
         }
 
         lobbyMusicSource.volume = Mathf.MoveTowards(lobbyMusicSource.volume, targetMusicVolume, MusicFadeSpeed * Time.unscaledDeltaTime);
+    }
+
+    private bool ShouldRestartLobbyMusic()
+    {
+        if (lobbyMusicSource == null || lobbyMusicSource.clip == null)
+        {
+            return false;
+        }
+
+        if (lobbyMusicSource.isPlaying)
+        {
+            return false;
+        }
+
+        if (lobbyMusicSource.loop)
+        {
+            return true;
+        }
+
+        return lobbyMusicSource.time >= Mathf.Max(0f, lobbyMusicSource.clip.length - MusicLoopRestartPadding);
     }
 
     private void SetMusicTargetVolume(float volume)
@@ -3074,6 +3223,23 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         if (renderer != null)
         {
             renderer.material = CreateRuntimeMaterial(color);
+        }
+    }
+
+    private static void SetRendererColorRecursive(GameObject target, Color color)
+    {
+        if (target == null)
+        {
+            return;
+        }
+
+        Renderer[] renderers = target.GetComponentsInChildren<Renderer>(true);
+        foreach (Renderer renderer in renderers)
+        {
+            if (renderer != null)
+            {
+                renderer.material = CreateRuntimeMaterial(color);
+            }
         }
     }
 
@@ -3151,11 +3317,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     }
 }
 
+[DefaultExecutionOrder(-130)]
 public sealed class LocalCubeController : MonoBehaviour
 {
     [SerializeField] private float moveSpeed = 6f;
     [SerializeField] private float jumpForce = 5f;
     [SerializeField] private float aimRotationSpeed = 18f;
+    [SerializeField] private float runTargetDistance = 3f;
 
     [Header("Combat Setup")]
     [SerializeField] private Vector3 weaponHolderLocalPosition = new Vector3(0.24f, 0.16f, 0.3f);
@@ -3167,8 +3335,14 @@ public sealed class LocalCubeController : MonoBehaviour
     private bool isGrounded = true;
     private Vector3 previousPosition;
     private PlayerMouseAim mouseAim;
+    private ProceduralPlayerRig rig;
+    private Vector3 fallbackMoveDirection;
+    private Vector3 latestAimPoint;
+    private bool hasLatestAimPoint;
 
     public Vector3 Velocity { get; private set; }
+    public ProceduralPlayerRig Rig => rig;
+    public Transform TrackedTransform => rig != null ? rig.CoreNode : transform;
 
     public void Setup(Transform cameraTransform)
     {
@@ -3178,7 +3352,14 @@ public sealed class LocalCubeController : MonoBehaviour
     private void Awake()
     {
         body = GetComponent<Rigidbody>();
-        previousPosition = transform.position;
+        rig = GetComponent<ProceduralPlayerRig>();
+        if (rig == null)
+        {
+            rig = gameObject.AddComponent<ProceduralPlayerRig>();
+        }
+
+        rig.Configure(true);
+        previousPosition = TrackedTransform.position;
         mouseAim = GetComponent<PlayerMouseAim>();
 
         SetupCombat();
@@ -3186,9 +3367,11 @@ public sealed class LocalCubeController : MonoBehaviour
 
     private void Update()
     {
+        UpdateProceduralTargets();
+
         if (cameraTransform != null)
         {
-            cameraTransform.position = transform.position + new Vector3(0f, 8f, -9f);
+            cameraTransform.position = TrackedTransform.position + new Vector3(0f, 8f, -9f);
             cameraTransform.rotation = Quaternion.Euler(45f, 0f, 0f);
         }
     }
@@ -3201,66 +3384,124 @@ public sealed class LocalCubeController : MonoBehaviour
         }
 
         Keyboard keyboard = Keyboard.current;
-        Vector2 input = Vector2.zero;
-        bool isAimLocked = mouseAim != null && mouseAim.IsAimModifierPressed;
-
-        if (keyboard != null)
+        if (body == null)
         {
-            if (!isAimLocked)
+            return;
+        }
+
+        if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame && isGrounded && !body.isKinematic)
+        {
+            body.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+            isGrounded = false;
+        }
+
+        if (rig == null || !rig.HasLegController)
+        {
+            body.MovePosition(body.position + fallbackMoveDirection * moveSpeed * Time.fixedDeltaTime);
+        }
+
+        bool useFallbackPhysics = rig == null || !rig.HasLegController;
+
+        if (hasLatestAimPoint && useFallbackPhysics)
+        {
+            Vector3 aimDirection = latestAimPoint - TrackedTransform.position;
+            aimDirection.y = 0f;
+
+            if (aimDirection.sqrMagnitude <= 0.001f)
             {
-                if (keyboard.wKey.isPressed) input.y += 1f;
-                if (keyboard.sKey.isPressed) input.y -= 1f;
-                if (keyboard.dKey.isPressed) input.x += 1f;
-                if (keyboard.aKey.isPressed) input.x -= 1f;
+                aimDirection = fallbackMoveDirection;
             }
 
-            if (keyboard.spaceKey.wasPressedThisFrame && isGrounded)
+            if (aimDirection.sqrMagnitude > 0.001f)
             {
-                body.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
-                isGrounded = false;
+                Quaternion targetRotation = Quaternion.LookRotation(aimDirection, Vector3.up);
+                body.MoveRotation(
+                    Quaternion.Slerp(
+                        body.rotation,
+                        targetRotation,
+                        aimRotationSpeed * Time.fixedDeltaTime
+                    )
+                );
             }
         }
-
-        Vector3 movement = new Vector3(input.x, 0f, input.y);
-
-        if (movement.sqrMagnitude > 1f)
+        else if (fallbackMoveDirection.sqrMagnitude > 0.001f && useFallbackPhysics)
         {
-            movement.Normalize();
+            body.MoveRotation(Quaternion.LookRotation(fallbackMoveDirection));
         }
 
-        body.MovePosition(body.position + movement * moveSpeed * Time.fixedDeltaTime);
+        Velocity = (TrackedTransform.position - previousPosition) / Time.fixedDeltaTime;
+        previousPosition = TrackedTransform.position;
+    }
 
-        if (isAimLocked && mouseAim != null && mouseAim.TryGetAimDirection(out Vector3 aimDirection, false))
+    private void UpdateProceduralTargets()
+    {
+        if (rig == null)
         {
-            Quaternion targetRotation = Quaternion.LookRotation(aimDirection, Vector3.up);
-            body.MoveRotation(
-                Quaternion.Slerp(
-                    body.rotation,
-                    targetRotation,
-                    aimRotationSpeed * Time.fixedDeltaTime
-                )
-            );
-        }
-        else if (movement.sqrMagnitude > 0.001f)
-        {
-            body.MoveRotation(Quaternion.LookRotation(movement));
+            return;
         }
 
-        Velocity = (transform.position - previousPosition) / Time.fixedDeltaTime;
-        previousPosition = transform.position;
+        if (mouseAim == null)
+        {
+            mouseAim = GetComponent<PlayerMouseAim>();
+        }
+
+        hasLatestAimPoint = mouseAim != null && mouseAim.TryGetMouseWorldPoint(out latestAimPoint);
+        if (hasLatestAimPoint)
+        {
+            rig.SetAimTarget(latestAimPoint);
+        }
+
+        Vector3 inputDirection = GetWasdDirection();
+        bool shiftHeld = mouseAim != null && mouseAim.IsAimModifierPressed;
+        Vector3 corePosition = rig.CoreNode.position;
+
+        fallbackMoveDirection = Vector3.zero;
+
+        if (shiftHeld && hasLatestAimPoint)
+        {
+            rig.SetRunTarget(latestAimPoint);
+            fallbackMoveDirection = Vector3.ProjectOnPlane(latestAimPoint - corePosition, Vector3.up).normalized;
+        }
+        else if (inputDirection.sqrMagnitude > 0.001f)
+        {
+            Vector3 normalizedInput = inputDirection.normalized;
+            rig.SetRunTarget(corePosition + normalizedInput * runTargetDistance);
+            fallbackMoveDirection = normalizedInput;
+        }
+
+        bool isHolding =
+            (GetComponent<PlayerWeaponPickup>()?.HasWeapon ?? false) ||
+            (GetComponent<PlayerItemPickup>()?.HasItem ?? false);
+
+        rig.ApplyHeldPose(isHolding);
+        rig.UseLocalArmTargets();
+    }
+
+    private static Vector3 GetWasdDirection()
+    {
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard == null)
+        {
+            return Vector3.zero;
+        }
+
+        Vector3 direction = Vector3.zero;
+        if (keyboard.wKey.isPressed) direction += Vector3.forward;
+        if (keyboard.sKey.isPressed) direction += Vector3.back;
+        if (keyboard.dKey.isPressed) direction += Vector3.right;
+        if (keyboard.aKey.isPressed) direction += Vector3.left;
+        return direction;
     }
 
     private void SetupCombat()
     {
-        Transform weaponHolder = CreateChildIfMissing(
-            "WeaponHolder",
-            weaponHolderLocalPosition
-        );
+        Transform weaponHolder = rig != null && rig.WeaponHolder != null
+            ? rig.WeaponHolder
+            : CreateChildIfMissing("WeaponHolder", weaponHolderLocalPosition);
 
-        Transform itemHolder = CreateChildIfMissing(
-            "ItemHolder",
-            new Vector3(0.3f, 0.12f, 0.42f)
-        );
+        Transform itemHolder = rig != null && rig.ItemHolder != null
+            ? rig.ItemHolder
+            : CreateChildIfMissing("ItemHolder", new Vector3(0.3f, 0.12f, 0.42f));
 
         Transform attackPoint = CreateChildIfMissing(
             "AttackPoint",
@@ -3391,27 +3632,65 @@ public sealed class LocalCubeController : MonoBehaviour
     }
 }
 
+[DefaultExecutionOrder(-130)]
 public sealed class RemoteCubeController : MonoBehaviour
 {
     [SerializeField] private float interpolationSpeed = 12f;
+    [SerializeField] private float snapDistance = 3f;
 
     private Vector3 targetPosition;
     private Quaternion targetRotation;
+    private ProceduralPlayerRig rig;
+
+    public ProceduralPlayerRig Rig => rig;
+    public Transform TrackedTransform => rig != null ? rig.CoreNode : transform;
 
     private void Awake()
     {
-        targetPosition = transform.position;
-        targetRotation = transform.rotation;
+        rig = GetComponent<ProceduralPlayerRig>();
+        if (rig == null)
+        {
+            rig = gameObject.AddComponent<ProceduralPlayerRig>();
+        }
+
+        rig.Configure(false);
+        targetPosition = TrackedTransform.position;
+        targetRotation = TrackedTransform.rotation;
     }
 
     public void ApplyState(PlayerStateDto state)
     {
         targetPosition = MultiplayerJson.ArrayToVector(state.position);
         targetRotation = Quaternion.Euler(MultiplayerJson.ArrayToVector(state.rotation));
+
+        Vector3 moveTarget = state.moveTarget != null && state.moveTarget.Length >= 3
+            ? MultiplayerJson.ArrayToVector(state.moveTarget)
+            : targetPosition;
+
+        Vector3 aimTarget = state.aimTarget != null && state.aimTarget.Length >= 3
+            ? MultiplayerJson.ArrayToVector(state.aimTarget)
+            : targetPosition + targetRotation * Vector3.forward;
+
+        rig.SetRunTarget(moveTarget);
+        rig.SetAimTarget(aimTarget);
+
+        if (state.leftArmTarget != null && state.rightArmTarget != null)
+        {
+            rig.ApplyRemoteArmTargets(
+                MultiplayerJson.ArrayToVector(state.leftArmTarget),
+                MultiplayerJson.ArrayToVector(state.rightArmTarget)
+            );
+        }
     }
 
     private void Update()
     {
+        if (rig != null && rig.HasLegController)
+        {
+            rig.ReconcileCoreToward(targetPosition, targetRotation, interpolationSpeed, snapDistance);
+            return;
+        }
+
         transform.position = Vector3.Lerp(transform.position, targetPosition, Time.deltaTime * interpolationSpeed);
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * interpolationSpeed);
     }

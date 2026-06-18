@@ -393,7 +393,13 @@ class GameConsumer(AsyncWebsocketConsumer):
             player.position = data["position"]
             player.rotation = data["rotation"]
             player.velocity = data["velocity"]
+            player.move_target = data.get("moveTarget", player.move_target)
+            player.aim_target = data.get("aimTarget", player.aim_target)
+            player.left_arm_target = data.get("leftArmTarget", player.left_arm_target)
+            player.right_arm_target = data.get("rightArmTarget", player.right_arm_target)
             player.animation_state = data.get("animationState", player.animation_state)
+            player.action_state = data.get("actionState", player.action_state)
+            player.action_seq = data.get("actionSeq", player.action_seq)
 
             payload = {
                 "type": PLAYER_STATE,

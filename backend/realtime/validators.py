@@ -27,8 +27,21 @@ def is_valid_player_state(data) -> bool:
     if not is_vec3(data.get("velocity")):
         return False
 
+    for optional_vec3 in ("moveTarget", "aimTarget", "leftArmTarget", "rightArmTarget"):
+        value = data.get(optional_vec3)
+        if value is not None and not is_vec3(value):
+            return False
+
     animation_state = data.get("animationState", "idle")
     if not isinstance(animation_state, str) or len(animation_state) > 64:
+        return False
+
+    action_state = data.get("actionState", "idle")
+    if not isinstance(action_state, str) or len(action_state) > 64:
+        return False
+
+    action_seq = data.get("actionSeq", 0)
+    if not isinstance(action_seq, int) or action_seq < 0:
         return False
 
     return True

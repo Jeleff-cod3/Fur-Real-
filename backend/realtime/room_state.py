@@ -13,7 +13,13 @@ class PlayerRuntimeState:
     position: list[float] = field(default_factory=lambda: [0, 0, 0])
     rotation: list[float] = field(default_factory=lambda: [0, 0, 0])
     velocity: list[float] = field(default_factory=lambda: [0, 0, 0])
+    move_target: list[float] = field(default_factory=lambda: [0, 0, 0])
+    aim_target: list[float] = field(default_factory=lambda: [0, 0, 1])
+    left_arm_target: list[float] = field(default_factory=lambda: [0, 0, 0])
+    right_arm_target: list[float] = field(default_factory=lambda: [0, 0, 0])
     animation_state: str = "idle"
+    action_state: str = "idle"
+    action_seq: int = 0
 
     rate_window_started: float = field(default_factory=time)
     state_messages_in_window: int = 0
@@ -38,7 +44,13 @@ class PlayerRuntimeState:
             "position": self.position,
             "rotation": self.rotation,
             "velocity": self.velocity,
+            "moveTarget": self.move_target,
+            "aimTarget": self.aim_target,
+            "leftArmTarget": self.left_arm_target,
+            "rightArmTarget": self.right_arm_target,
             "animationState": self.animation_state,
+            "actionState": self.action_state,
+            "actionSeq": self.action_seq,
         }
 
 

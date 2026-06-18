@@ -142,7 +142,13 @@ public sealed class PlayerStateDto
     public float[] position;
     public float[] rotation;
     public float[] velocity;
+    public float[] moveTarget;
+    public float[] aimTarget;
+    public float[] leftArmTarget;
+    public float[] rightArmTarget;
     public string animationState = "idle";
+    public string actionState = "idle";
+    public int actionSeq;
 
     public static PlayerStateDto FromTransform(string playerId, int userId, int seq, Transform transform, Vector3 velocity)
     {
@@ -157,6 +163,39 @@ public sealed class PlayerStateDto
             rotation = MultiplayerJson.VectorToArray(transform.eulerAngles),
             velocity = MultiplayerJson.VectorToArray(velocity),
             animationState = velocity.sqrMagnitude > 0.01f ? "run" : "idle",
+        };
+    }
+
+    public static PlayerStateDto FromProceduralPlayer(
+        string playerId,
+        int userId,
+        int seq,
+        ProceduralPlayerRig rig)
+    {
+        Transform core = rig != null ? rig.CoreNode : null;
+        Vector3 position = core != null ? core.position : Vector3.zero;
+        Vector3 rotation = core != null ? core.eulerAngles : Vector3.zero;
+        Vector3 velocity = rig != null ? rig.Velocity : Vector3.zero;
+        Transform runTarget = rig != null ? rig.RunTarget : null;
+        Transform aimTarget = rig != null ? rig.AimTarget : null;
+
+        return new PlayerStateDto
+        {
+            type = "player_state",
+            playerId = playerId,
+            userId = userId,
+            seq = seq,
+            clientTime = Time.realtimeSinceStartupAsDouble,
+            position = MultiplayerJson.VectorToArray(position),
+            rotation = MultiplayerJson.VectorToArray(rotation),
+            velocity = MultiplayerJson.VectorToArray(velocity),
+            moveTarget = MultiplayerJson.VectorToArray(runTarget != null ? runTarget.position : position),
+            aimTarget = MultiplayerJson.VectorToArray(aimTarget != null ? aimTarget.position : position + Vector3.forward),
+            leftArmTarget = MultiplayerJson.VectorToArray(rig != null ? rig.LeftArmTargetWorld : position),
+            rightArmTarget = MultiplayerJson.VectorToArray(rig != null ? rig.RightArmTargetWorld : position),
+            animationState = velocity.sqrMagnitude > 0.01f ? "run" : "idle",
+            actionState = rig != null ? rig.ActionState : "idle",
+            actionSeq = rig != null ? rig.ActionSequence : 0,
         };
     }
 }
