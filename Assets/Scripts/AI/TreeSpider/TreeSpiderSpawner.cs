@@ -9,14 +9,14 @@ public class TreeSpiderSpawner : MonoBehaviour
     [SerializeField] private GameObject spiderPrefab;
 
     [Header("Population")]
-    [SerializeField] private float spidersPerResourcePlayer = 1.5f;
-    [SerializeField] private int minimumSpidersWhenOccupied = 1;
-    [SerializeField] private int maxAliveSpiders = 10;
-    [SerializeField] private float spawnCheckInterval = 2f;
+    [SerializeField] private float spidersPerResourcePlayer = 2.5f;
+    [SerializeField] private int minimumSpidersWhenOccupied = 2;
+    [SerializeField] private int maxAliveSpiders = 14;
+    [SerializeField] private float spawnCheckInterval = 1.25f;
 
     [Header("Spawn Targeting")]
-    [SerializeField] private float preferredSpawnDistanceFromPlayer = 70f;
-    [SerializeField] private float extendedSpawnDistanceFromPlayer = 120f;
+    [SerializeField] private float preferredSpawnDistanceFromPlayer = 55f;
+    [SerializeField] private float extendedSpawnDistanceFromPlayer = 90f;
 
     private readonly List<TreeSpiderBrain> activeSpiders = new List<TreeSpiderBrain>();
     private readonly List<Transform> playerBuffer = new List<Transform>();
@@ -74,12 +74,15 @@ public class TreeSpiderSpawner : MonoBehaviour
         CleanupDestroyedSpiders();
 
         int resourcePlayers = CountPlayersInResourceArea();
+        float effectiveSpidersPerPlayer = Mathf.Max(2.5f, spidersPerResourcePlayer);
+        int effectiveMinimum = Mathf.Max(2, minimumSpidersWhenOccupied);
+        int effectiveMaximum = Mathf.Max(effectiveMinimum, maxAliveSpiders);
         int targetPopulation = resourcePlayers <= 0
             ? 0
             : Mathf.Clamp(
-                Mathf.CeilToInt(resourcePlayers * spidersPerResourcePlayer),
-                minimumSpidersWhenOccupied,
-                maxAliveSpiders);
+                Mathf.CeilToInt(resourcePlayers * effectiveSpidersPerPlayer),
+                effectiveMinimum,
+                effectiveMaximum);
 
         while (activeSpiders.Count < targetPopulation)
         {
@@ -211,7 +214,7 @@ public class TreeSpiderSpawner : MonoBehaviour
 
                 if (treeRegistry.TryReserveRandomAvailableAnchorNear(
                     centerPlayer.position,
-                    preferredSpawnDistanceFromPlayer,
+                    Mathf.Min(preferredSpawnDistanceFromPlayer, 55f),
                     this,
                     out treeIndex,
                     out anchor))
@@ -230,7 +233,7 @@ public class TreeSpiderSpawner : MonoBehaviour
 
                 if (treeRegistry.TryReserveRandomAvailableAnchorNear(
                     centerPlayer.position,
-                    extendedSpawnDistanceFromPlayer,
+                    Mathf.Min(extendedSpawnDistanceFromPlayer, 90f),
                     this,
                     out treeIndex,
                     out anchor))

@@ -18,6 +18,8 @@ public class WorldChunkRenderer : MonoBehaviour
     [Header("Full Map NavMesh Baking")]
     public bool renderFullMapBeforeNavMeshBake = true;
     public bool hideChunksOutsideViewAfterBake = true;
+    public bool unloadDistantChunksAfterInitialBake = true;
+    public int initialChunkBatchSize = 6;
 
     [Header("References")]
     public Transform player;
@@ -91,6 +93,9 @@ public class WorldChunkRenderer : MonoBehaviour
     private WorldData worldData;
 
     public bool IsNavMeshReady { get; private set; }
+    public bool IsBootstrapComplete { get; private set; }
+    public string BootstrapStatus { get; private set; } = "Preparing world...";
+    public float BootstrapProgress { get; private set; }
     public WorldData WorldData => worldData;
     public int WorldSeed => seed;
     public int ChunkWorldSize => chunkSize;
@@ -126,8 +131,12 @@ public class WorldChunkRenderer : MonoBehaviour
 
     public PickupableWeapon CraftedSpearPrefab => ResolveCraftedSpearPrefab();
 
-    private void Start()
+    private System.Collections.IEnumerator Start()
     {
+        IsBootstrapComplete = false;
+        BootstrapProgress = 0f;
+        BootstrapStatus = "Preparing world renderer...";
+
         if (Mathf.Abs(transform.lossyScale.y) < 0.001f)
         {
             Debug.LogError("WorldChunkRenderer parent has Y scale near 0. This will flatten all chunks.");
@@ -140,29 +149,68 @@ public class WorldChunkRenderer : MonoBehaviour
             navMeshSurface = GetComponent<NavMeshSurface>();
         }
 
+        BootstrapStatus = "Generating terrain data...";
+        BootstrapProgress = 0.08f;
+        yield return null;
         GenerateWorld();
+
+        BootstrapStatus = "Inspecting terrain...";
+        BootstrapProgress = 0.16f;
+        yield return null;
         DebugWorldHeightRange();
+
+        BootstrapStatus = "Placing players...";
+        BootstrapProgress = 0.22f;
         PlacePlayerAtArenaCenter();
         SyncTrackedPlayerChunks();
+        yield return null;
 
         if (renderFullMapBeforeNavMeshBake)
         {
-            RenderAllChunksForNavMeshBake();
+            BootstrapStatus = "Building world chunks...";
+            yield return RenderAllChunksForNavMeshBakeRoutine();
         }
         else
         {
+            BootstrapStatus = "Loading nearby chunks...";
             UpdateVisibleChunks();
+            BootstrapProgress = 0.62f;
+            yield return null;
         }
 
+        BootstrapStatus = "Baking navigation mesh...";
+        BootstrapProgress = Mathf.Max(BootstrapProgress, 0.82f);
+        yield return null;
         BuildWorldNavMesh();
+
+        BootstrapStatus = "Snapping spawn positions...";
+        BootstrapProgress = 0.93f;
+        yield return null;
         SnapPlayerToNavMesh();
 
         if (renderFullMapBeforeNavMeshBake && hideChunksOutsideViewAfterBake)
         {
-            UpdateChunkVisibilityOnly();
+            BootstrapStatus = unloadDistantChunksAfterInitialBake
+                ? "Unloading distant chunks..."
+                : "Finalizing visible chunks...";
+
+            if (unloadDistantChunksAfterInitialBake)
+            {
+                UpdateVisibleChunks();
+            }
+            else
+            {
+                UpdateChunkVisibilityOnly();
+            }
+
+            yield return null;
         }
 
+        BootstrapStatus = "Spawning cave...";
         SpawnCave();
+        BootstrapProgress = 1f;
+        BootstrapStatus = "World ready.";
+        IsBootstrapComplete = true;
     }
 
     private void Update()
@@ -173,7 +221,14 @@ public class WorldChunkRenderer : MonoBehaviour
 
             if (renderFullMapBeforeNavMeshBake)
             {
-                UpdateChunkVisibilityOnly();
+                if (hideChunksOutsideViewAfterBake && unloadDistantChunksAfterInitialBake)
+                {
+                    UpdateVisibleChunks();
+                }
+                else
+                {
+                    UpdateChunkVisibilityOnly();
+                }
             }
             else
             {
@@ -236,9 +291,12 @@ public class WorldChunkRenderer : MonoBehaviour
         );
     }
 
-    private void RenderAllChunksForNavMeshBake()
+    private System.Collections.IEnumerator RenderAllChunksForNavMeshBakeRoutine()
     {
         int chunksPerAxis = mapSize / chunkSize;
+        int totalChunks = Mathf.Max(1, chunksPerAxis * chunksPerAxis);
+        int processedChunks = 0;
+        int batchSize = Mathf.Max(1, initialChunkBatchSize);
 
         for (int z = 0; z < chunksPerAxis; z++)
         {
@@ -250,8 +308,21 @@ public class WorldChunkRenderer : MonoBehaviour
                 {
                     CreateChunk(chunkCoord);
                 }
+
+                processedChunks++;
+
+                if (processedChunks % batchSize == 0)
+                {
+                    float chunkProgress = Mathf.Clamp01(processedChunks / (float)totalChunks);
+                    BootstrapProgress = Mathf.Lerp(0.28f, 0.78f, chunkProgress);
+                    BootstrapStatus = $"Building world chunks... {processedChunks}/{totalChunks}";
+                    yield return null;
+                }
             }
         }
+
+        BootstrapProgress = 0.78f;
+        BootstrapStatus = $"Building world chunks... {totalChunks}/{totalChunks}";
 
         Debug.Log($"Rendered {activeChunks.Count} chunks before NavMesh bake.");
     }

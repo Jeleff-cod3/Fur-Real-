@@ -15,11 +15,12 @@ public class TreeSpiderBrain : MonoBehaviour
     [SerializeField] private float targetMemoryDuration = 5f;
 
     [Header("Hidden Tree Behaviour")]
-    [SerializeField] private float hiddenDecisionDelayMin = 0.7f;
-    [SerializeField] private float hiddenDecisionDelayMax = 1.5f;
-    [SerializeField] private float hiddenDropBaseChance = 0.2f;
-    [SerializeField] private float hiddenCloserBonus = 0.38f;
-    [SerializeField] private float hiddenFartherPenalty = 0.18f;
+    [SerializeField] private float hiddenDecisionDelayMin = 0.35f;
+    [SerializeField] private float hiddenDecisionDelayMax = 0.85f;
+    [SerializeField] private float hiddenDropBaseChance = 0.58f;
+    [SerializeField] private float hiddenCloserBonus = 0.28f;
+    [SerializeField] private float hiddenFartherPenalty = 0.04f;
+    [SerializeField] private float forcedDropAfterNearbyTime = 1.15f;
 
     [Header("Visible Behaviour")]
     [SerializeField] private float chooseGrabChance = 0.32f;
@@ -38,6 +39,7 @@ public class TreeSpiderBrain : MonoBehaviour
     private float nextDecisionTime;
     private float nextHiddenDecisionTime;
     private float wanderUntilTime;
+    private float hiddenTargetNearbySinceTime;
 
     private void Awake()
     {
@@ -173,7 +175,13 @@ public class TreeSpiderBrain : MonoBehaviour
         if (target == null || senses == null || !senses.IsTargetNearHiddenTree)
         {
             nextHiddenDecisionTime = 0f;
+            hiddenTargetNearbySinceTime = 0f;
             return;
+        }
+
+        if (hiddenTargetNearbySinceTime <= 0f)
+        {
+            hiddenTargetNearbySinceTime = Time.time;
         }
 
         if (senses.IsTargetDirectlyUnderTree)
@@ -182,13 +190,22 @@ public class TreeSpiderBrain : MonoBehaviour
             return;
         }
 
+        float forcedDropDelay = Mathf.Min(forcedDropAfterNearbyTime, 1.15f);
+        if (Time.time - hiddenTargetNearbySinceTime >= forcedDropDelay)
+        {
+            DropFromTree(target, false);
+            return;
+        }
+
         if (Time.time < nextHiddenDecisionTime)
         {
             return;
         }
 
-        float chance = hiddenDropBaseChance;
-        chance += senses.IsTargetClosingOnTree ? hiddenCloserBonus : -hiddenFartherPenalty;
+        float chance = Mathf.Max(0.58f, hiddenDropBaseChance);
+        chance += senses.IsTargetClosingOnTree
+            ? Mathf.Max(0.28f, hiddenCloserBonus)
+            : -Mathf.Min(0.04f, hiddenFartherPenalty);
         chance = Mathf.Clamp01(chance);
 
         if (Random.value < chance)
@@ -198,7 +215,10 @@ public class TreeSpiderBrain : MonoBehaviour
         }
 
         state.SetAction(TreeSpiderActionType.Watching);
-        nextHiddenDecisionTime = Time.time + Random.Range(hiddenDecisionDelayMin, hiddenDecisionDelayMax);
+        nextHiddenDecisionTime = Time.time + Random.Range(
+            Mathf.Min(hiddenDecisionDelayMin, 0.35f),
+            Mathf.Min(hiddenDecisionDelayMax, 0.85f)
+        );
     }
 
     private void DecideWhileVisible(Transform target)
@@ -311,6 +331,7 @@ public class TreeSpiderBrain : MonoBehaviour
         state.SetTarget(target);
         state.SetAction(TreeSpiderActionType.DropAmbush);
         nextHiddenDecisionTime = 0f;
+        hiddenTargetNearbySinceTime = 0f;
         combat.StartDropAmbush(target, guaranteedHit);
     }
 
@@ -328,6 +349,7 @@ public class TreeSpiderBrain : MonoBehaviour
         state.isReturningToTree = false;
         state.isBusy = false;
         state.SetAction(TreeSpiderActionType.Hidden);
+        hiddenTargetNearbySinceTime = 0f;
         SetVisible(false);
     }
 
@@ -383,15 +405,27 @@ public class TreeSpiderBrain : MonoBehaviour
 
     private void EnsureCollider()
     {
-        if (GetComponent<Collider>() != null)
+        CapsuleCollider capsuleCollider = GetComponent<CapsuleCollider>();
+        if (capsuleCollider != null)
         {
+            capsuleCollider.center = new Vector3(0f, 0.24f, 0f);
+            capsuleCollider.height = 0.58f;
+            capsuleCollider.radius = 0.24f;
+            return;
+        }
+
+        BoxCollider boxCollider = GetComponent<BoxCollider>();
+        if (boxCollider != null)
+        {
+            boxCollider.center = new Vector3(0f, 0.22f, 0f);
+            boxCollider.size = new Vector3(0.52f, 0.44f, 0.52f);
             return;
         }
 
         CapsuleCollider capsule = gameObject.AddComponent<CapsuleCollider>();
-        capsule.center = new Vector3(0f, 0.35f, 0f);
-        capsule.height = 0.8f;
-        capsule.radius = 0.45f;
+        capsule.center = new Vector3(0f, 0.24f, 0f);
+        capsule.height = 0.58f;
+        capsule.radius = 0.24f;
     }
 
     private void ConfigureRigidbody()

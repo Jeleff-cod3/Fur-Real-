@@ -765,6 +765,26 @@ MonoBehaviour:
     shadowOffsetZ: -0.05
   rockMaterial: {fileID: 2100000, guid: ccfc20da9bc8f08419ef84bb7456e67e, type: 2}
   rockShadowMaterial: {fileID: 2100000, guid: 8eba49795c3b374428ba2c7154c88285, type: 2}
+  pickupStickSpawnSettings:
+    enabled: 1
+    treeDropChance: 0.1
+    oneStickWeight: 0.68
+    twoStickWeight: 0.22
+    threeStickWeight: 0.1
+    minDistanceFromTree: 0.8
+    maxDistanceFromTree: 2.2
+    yOffset: 0.02
+    maxSlopeAngle: 32
+  pickupRockSpawnSettings:
+    enabled: 1
+    spacing: 18
+    arenaDensity: 0.02
+    transitionDensity: 0.035
+    resourceDensity: 0.05
+    yOffset: 0.03
+    maxSlopeAngle: 34
+    minVisualScale: 0.28
+    maxVisualScale: 0.52
   vegetationSettings:
     enabled: 1
     spacing: 6
@@ -1086,6 +1106,7 @@ GameObject:
   - component: {fileID: 1900010002}
   - component: {fileID: 1900010003}
   - component: {fileID: 1900010004}
+  - component: {fileID: 1900010005}
   m_Layer: 0
   m_Name: Spawn Systems
   m_TagString: Untagged
@@ -1163,6 +1184,25 @@ MonoBehaviour:
   groundProbeHeight: 40
   groundProbeDistance: 120
   useExistingSceneMammothAsInitialSpawn: 0
+--- !u!114 &1900010005
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1900010001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1d6d25e8816c4ae4b48807d4d337f00a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::TreeSpiderSpawner
+  spiderPrefab: {fileID: 4738490546871779606, guid: 112685390c9f9334f92a9f92a0f249fa, type: 3}
+  spidersPerResourcePlayer: 1.5
+  minimumSpidersWhenOccupied: 1
+  maxAliveSpiders: 10
+  spawnCheckInterval: 2
+  preferredSpawnDistanceFromPlayer: 70
+  extendedSpawnDistanceFromPlayer: 120
 --- !u!1001 &2078932839
 PrefabInstance:
   m_ObjectHideFlags: 0

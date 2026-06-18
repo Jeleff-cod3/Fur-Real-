@@ -24,6 +24,10 @@ public class MammothSpawner : MonoBehaviour
     [SerializeField] private float groundProbeHeight = 40f;
     [SerializeField] private float groundProbeDistance = 120f;
 
+    [Header("Safety")]
+    [SerializeField] private float validationIntervalSeconds = 2f;
+    [SerializeField] private float invalidMammothYThreshold = -30f;
+
     [Header("Scene Debug")]
     [SerializeField] private bool useExistingSceneMammothAsInitialSpawn = false;
 
@@ -31,6 +35,7 @@ public class MammothSpawner : MonoBehaviour
     private EnemyHealth currentMammoth;
     private GameObject mammothSpawnSource;
     private Coroutine respawnCoroutine;
+    private float nextValidationTime;
 
     private IEnumerator Start()
     {
@@ -41,6 +46,39 @@ public class MammothSpawner : MonoBehaviour
         if (currentMammoth == null)
         {
             SpawnMammoth(null);
+        }
+    }
+
+    private void Update()
+    {
+        if (Time.time < nextValidationTime)
+        {
+            return;
+        }
+
+        nextValidationTime = Time.time + Mathf.Max(0.5f, validationIntervalSeconds);
+
+        if (respawnCoroutine != null)
+        {
+            return;
+        }
+
+        if (currentMammoth == null)
+        {
+            if (mammothSpawnSource != null)
+            {
+                respawnCoroutine = StartCoroutine(RespawnMammothCoroutine(Vector3.zero));
+            }
+
+            return;
+        }
+
+        if (!currentMammoth.gameObject.activeInHierarchy ||
+            currentMammoth.transform.position.y < invalidMammothYThreshold)
+        {
+            Vector3 nearPosition = currentMammoth.transform.position;
+            currentMammoth = null;
+            respawnCoroutine = StartCoroutine(RespawnMammothCoroutine(nearPosition));
         }
     }
 

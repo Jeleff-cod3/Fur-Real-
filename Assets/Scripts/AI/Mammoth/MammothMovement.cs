@@ -27,6 +27,11 @@ public class MammothMovement : MonoBehaviour
     [SerializeField] private float lookAroundSweepAngle = 70f;
     [SerializeField] private float lookAroundSweepSpeed = 1.8f;
 
+    [Header("Rotation")]
+    [SerializeField] private float movementTurnSpeed = 6.5f;
+    [SerializeField] private float forcedTurnSpeed = 9f;
+    [SerializeField] private float forcedFacingDuration = 0.3f;
+
     [Header("NavMesh Recovery")]
     [SerializeField] private float navMeshRecoveryRadius = 80f;
     [SerializeField] private float destinationSampleRadius = 10f;
@@ -36,6 +41,8 @@ public class MammothMovement : MonoBehaviour
     private WorldChunkRenderer worldChunkRenderer;
     private Vector3 spawnPosition;
     private bool lookAroundAtDestination;
+    private Transform forcedFacingTarget;
+    private float forcedFacingUntilTime;
 
     public bool HasReachedDestination =>
         agent != null &&
@@ -50,6 +57,11 @@ public class MammothMovement : MonoBehaviour
         state = GetComponent<MammothState>();
         worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
         spawnPosition = transform.position;
+
+        if (agent != null)
+        {
+            agent.updateRotation = false;
+        }
     }
 
     private void Start()
@@ -61,16 +73,19 @@ public class MammothMovement : MonoBehaviour
     {
         if (!lookAroundAtDestination || state == null || state.currentAction != MammothActionType.Investigate)
         {
+            UpdateRotation();
             return;
         }
 
         if (!HasReachedDestination)
         {
+            UpdateRotation();
             return;
         }
 
         if (agent != null && agent.enabled && agent.isOnNavMesh)
         {
+            agent.isStopped = true;
             agent.ResetPath();
             agent.velocity = Vector3.zero;
         }
@@ -103,6 +118,9 @@ public class MammothMovement : MonoBehaviour
         }
 
         lookAroundAtDestination = false;
+        forcedFacingTarget = null;
+        forcedFacingUntilTime = 0f;
+        agent.isStopped = true;
         agent.ResetPath();
         agent.velocity = Vector3.zero;
     }
@@ -115,6 +133,7 @@ public class MammothMovement : MonoBehaviour
         }
 
         lookAroundAtDestination = false;
+        forcedFacingTarget = target;
 
         if (!TryResolveTerritoryDestination(target.position, true, out Vector3 targetPosition))
         {
@@ -143,6 +162,7 @@ public class MammothMovement : MonoBehaviour
 
         Vector3 desiredPosition = transform.position + awayDirection.normalized * runAwayDistance;
         lookAroundAtDestination = false;
+        forcedFacingTarget = threat;
 
         if (TryResolveTerritoryDestination(desiredPosition, true, out Vector3 navPosition))
         {
@@ -160,6 +180,7 @@ public class MammothMovement : MonoBehaviour
         }
 
         lookAroundAtDestination = false;
+        forcedFacingTarget = null;
 
         if (TryFindRoamDestination(out Vector3 navPosition))
         {
@@ -182,6 +203,7 @@ public class MammothMovement : MonoBehaviour
         }
 
         lookAroundAtDestination = true;
+        forcedFacingTarget = null;
         agent.speed = investigateSpeed;
         agent.isStopped = false;
         agent.SetDestination(navPosition);
@@ -204,6 +226,7 @@ public class MammothMovement : MonoBehaviour
 
         Vector3 chargeTarget = transform.position + direction.normalized * chargeDistance;
         lookAroundAtDestination = false;
+        forcedFacingTarget = target;
 
         if (TryResolveTerritoryDestination(chargeTarget, true, out Vector3 navPosition))
         {
@@ -220,6 +243,9 @@ public class MammothMovement : MonoBehaviour
             return;
         }
 
+        forcedFacingTarget = target;
+        forcedFacingUntilTime = Time.time + forcedFacingDuration;
+
         Vector3 direction = target.position - transform.position;
         direction.y = 0f;
 
@@ -231,7 +257,61 @@ public class MammothMovement : MonoBehaviour
         transform.rotation = Quaternion.Slerp(
             transform.rotation,
             Quaternion.LookRotation(direction.normalized),
-            Time.deltaTime * 8f
+            Time.deltaTime * forcedTurnSpeed
+        );
+    }
+
+    private void UpdateRotation()
+    {
+        if (lookAroundAtDestination)
+        {
+            return;
+        }
+
+        if (forcedFacingTarget != null &&
+            forcedFacingTarget.gameObject.activeInHierarchy &&
+            Time.time <= forcedFacingUntilTime)
+        {
+            RotateTowards(forcedFacingTarget.position - transform.position, forcedTurnSpeed);
+            return;
+        }
+
+        if (agent == null || !agent.enabled || !agent.isOnNavMesh || agent.isStopped)
+        {
+            return;
+        }
+
+        Vector3 desiredDirection = agent.desiredVelocity;
+        desiredDirection.y = 0f;
+
+        if (desiredDirection.sqrMagnitude <= 0.01f)
+        {
+            desiredDirection = agent.velocity;
+            desiredDirection.y = 0f;
+        }
+
+        if (desiredDirection.sqrMagnitude <= 0.01f)
+        {
+            return;
+        }
+
+        RotateTowards(desiredDirection, movementTurnSpeed);
+    }
+
+    private void RotateTowards(Vector3 direction, float speed)
+    {
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude <= 0.001f)
+        {
+            return;
+        }
+
+        Quaternion desiredRotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        transform.rotation = Quaternion.Slerp(
+            transform.rotation,
+            desiredRotation,
+            Time.deltaTime * speed
         );
     }
 

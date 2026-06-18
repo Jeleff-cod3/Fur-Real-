@@ -14,8 +14,14 @@ public class TreeSpiderMovement : MonoBehaviour
     [SerializeField] private float navMeshSampleRadius = 10f;
     [SerializeField] private float navMeshRecoveryRadius = 70f;
 
+    [Header("Rotation")]
+    [SerializeField] private float movementTurnSpeed = 11f;
+    [SerializeField] private float trackedTargetTurnSpeed = 14f;
+    [SerializeField] private float trackedTargetKeepDistance = 3.2f;
+
     private NavMeshAgent agent;
     private WorldChunkRenderer worldChunkRenderer;
+    private Transform trackedFacingTarget;
 
     public bool HasReachedDestination =>
         agent != null &&
@@ -28,6 +34,16 @@ public class TreeSpiderMovement : MonoBehaviour
     {
         agent = GetComponent<NavMeshAgent>();
         worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
+
+        if (agent != null)
+        {
+            agent.updateRotation = false;
+        }
+    }
+
+    private void Update()
+    {
+        UpdateRotation();
     }
 
     public void Stop()
@@ -40,6 +56,7 @@ public class TreeSpiderMovement : MonoBehaviour
         agent.ResetPath();
         agent.velocity = Vector3.zero;
         agent.isStopped = true;
+        trackedFacingTarget = null;
     }
 
     public void SetAgentEnabled(bool isEnabled)
@@ -74,6 +91,7 @@ public class TreeSpiderMovement : MonoBehaviour
             destination = target.position;
         }
 
+        trackedFacingTarget = target;
         agent.speed = chaseSpeed;
         agent.isStopped = false;
         agent.SetDestination(destination);
@@ -91,6 +109,7 @@ public class TreeSpiderMovement : MonoBehaviour
             return;
         }
 
+        trackedFacingTarget = null;
         agent.speed = wanderSpeed;
         agent.isStopped = false;
         agent.SetDestination(destination);
@@ -108,6 +127,7 @@ public class TreeSpiderMovement : MonoBehaviour
             destination = treeBasePosition;
         }
 
+        trackedFacingTarget = null;
         agent.speed = returnSpeed;
         agent.isStopped = false;
         agent.SetDestination(destination);
@@ -139,6 +159,8 @@ public class TreeSpiderMovement : MonoBehaviour
             return;
         }
 
+        trackedFacingTarget = target;
+
         Vector3 direction = target.position - transform.position;
         direction.y = 0f;
 
@@ -150,7 +172,60 @@ public class TreeSpiderMovement : MonoBehaviour
         transform.rotation = Quaternion.Slerp(
             transform.rotation,
             Quaternion.LookRotation(direction.normalized, Vector3.up),
-            Time.deltaTime * 10f
+            Time.deltaTime * trackedTargetTurnSpeed
+        );
+    }
+
+    private void UpdateRotation()
+    {
+        if (trackedFacingTarget != null && trackedFacingTarget.gameObject.activeInHierarchy)
+        {
+            Vector3 targetDirection = trackedFacingTarget.position - transform.position;
+            targetDirection.y = 0f;
+
+            if (targetDirection.sqrMagnitude <= trackedTargetKeepDistance * trackedTargetKeepDistance)
+            {
+                RotateTowards(targetDirection, trackedTargetTurnSpeed);
+                return;
+            }
+        }
+
+        if (agent == null || !agent.enabled || !agent.isOnNavMesh || agent.isStopped)
+        {
+            return;
+        }
+
+        Vector3 desiredDirection = agent.desiredVelocity;
+        desiredDirection.y = 0f;
+
+        if (desiredDirection.sqrMagnitude <= 0.01f)
+        {
+            desiredDirection = agent.velocity;
+            desiredDirection.y = 0f;
+        }
+
+        if (desiredDirection.sqrMagnitude <= 0.01f)
+        {
+            return;
+        }
+
+        RotateTowards(desiredDirection, movementTurnSpeed);
+    }
+
+    private void RotateTowards(Vector3 direction, float speed)
+    {
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude <= 0.001f)
+        {
+            return;
+        }
+
+        Quaternion desiredRotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+        transform.rotation = Quaternion.Slerp(
+            transform.rotation,
+            desiredRotation,
+            Time.deltaTime * speed
         );
     }
 

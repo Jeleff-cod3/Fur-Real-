@@ -31,19 +31,24 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private const float SpawnNavMeshSampleRadius = 80f;
     private const float SpawnRaycastHeight = 200f;
     private const float SpawnRaycastDistance = 600f;
+    private const string LobbyMusicResourcePath = "music/FurReal-SpearMeDaddy";
+    private const float LobbyMusicVolume = 0.38f;
+    private const float InGameMusicVolume = 0.07f;
+    private const float MusicFadeSpeed = 0.8f;
     private const string BuiltInFontName = "LegacyRuntime.ttf";
     private const int DefaultMaxPlayers = 4;
     private static Font cachedUiFont;
     private static Shader cachedObjectShader;
     public static MultiplayerPrototype Instance { get; private set; }
 
-    private static readonly Color Ink = new Color(0.035f, 0.043f, 0.075f, 0.96f);
-    private static readonly Color Panel = new Color(0.07f, 0.09f, 0.16f, 0.94f);
-    private static readonly Color PanelSoft = new Color(0.11f, 0.14f, 0.24f, 0.9f);
-    private static readonly Color Accent = new Color(0.96f, 0.61f, 0.17f);
-    private static readonly Color AccentCool = new Color(0.16f, 0.74f, 1f);
-    private static readonly Color Success = new Color(0.24f, 0.88f, 0.48f);
-    private static readonly Color MutedText = new Color(0.68f, 0.73f, 0.84f);
+    private static readonly Vector2 MenuPanelSize = new Vector2(680f, 760f);
+    private static readonly Color Ink = new Color(0.12f, 0.08f, 0.04f, 0.98f);
+    private static readonly Color Panel = new Color(0.88f, 0.82f, 0.7f, 0.96f);
+    private static readonly Color PanelSoft = new Color(0.95f, 0.91f, 0.8f, 0.96f);
+    private static readonly Color Accent = new Color(0.72f, 0.34f, 0.12f, 0.98f);
+    private static readonly Color AccentCool = new Color(0.23f, 0.4f, 0.34f, 0.98f);
+    private static readonly Color Success = new Color(0.34f, 0.48f, 0.2f, 0.98f);
+    private static readonly Color MutedText = new Color(0.34f, 0.27f, 0.19f, 0.92f);
 
     private CaveGameApiClient api;
     private CaveGameSocketClient lobbySocket;
@@ -74,15 +79,24 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private int remoteStatesPerSecond;
 
     private Canvas canvas;
+    private GameObject menuBackdrop;
+    private GameObject menuWordmarkRoot;
     private GameObject loginPanel;
     private GameObject findPanel;
     private GameObject lobbyPanel;
     private GameObject gameHudPanel;
+    private GameObject loadingPanel;
+    private AudioSource lobbyMusicSource;
+    private float targetMusicVolume;
 
     private InputField serverInput;
     private InputField usernameInput;
     private InputField passwordInput;
     private InputField joinCodeInput;
+    private Text loadingTitleText;
+    private Text loadingStatusText;
+    private Text loadingProgressText;
+    private Image loadingProgressFill;
     private Text loginStatusText;
     private Text findStatusText;
     private Text lobbyTitleText;
@@ -118,6 +132,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private Vector3 targetRemoteMammothPosition;
     private Quaternion targetRemoteMammothRotation = Quaternion.identity;
     private bool hasRemoteMammothPose;
+    private bool worldBootstrapReady;
+    private bool worldBootstrapFailed;
+    private float lastLoadingUiRefreshTime;
 
     [Header("Networking Debug")]
     [SerializeField] private bool verboseNetworkingLogs = true;
@@ -181,14 +198,30 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         debugClientTag = System.Guid.NewGuid().ToString("N").Substring(0, 6);
         api = new CaveGameApiClient(DefaultServerUrl, () => authToken);
         BuildUi();
+        ConfigureLobbyMusic();
+        SetMenuChromeVisible(true);
+        SetMusicTargetVolume(LobbyMusicVolume);
         NetLog("Bootstrap complete.");
-        ShowLogin("Enter a display name, then authenticate with the backend.");
+        ShowLoading("Preparing world bootstrap...");
+    }
+
+    private void Start()
+    {
+        StartCoroutine(WaitForWorldBootstrapThenEnableAuth());
     }
 
     private void Update()
     {
         lobbySocket?.Pump();
         gameSocket?.Pump();
+
+        if (!worldBootstrapReady && Time.unscaledTime - lastLoadingUiRefreshTime >= 0.1f)
+        {
+            lastLoadingUiRefreshTime = Time.unscaledTime;
+            RefreshLoadingUi();
+        }
+
+        UpdateMusicVolume();
 
         TryConfigureMammothRuntime();
         UpdateRemoteMammothPose();
@@ -300,6 +333,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void Login()
     {
+        if (!EnsureWorldBootstrapReadyForUiAction())
+        {
+            return;
+        }
+
         api = new CaveGameApiClient(serverInput.text, () => authToken);
         SetText(loginStatusText, "Authenticating...");
 
@@ -320,6 +358,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void CreateLobby()
     {
+        if (!EnsureWorldBootstrapReadyForUiAction())
+        {
+            return;
+        }
+
         SetText(findStatusText, "Creating lobby...");
         StartCoroutine(api.CreateLobby(4, result =>
         {
@@ -339,6 +382,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void JoinLobby()
     {
+        if (!EnsureWorldBootstrapReadyForUiAction())
+        {
+            return;
+        }
+
         string code = joinCodeInput.text;
         if (string.IsNullOrWhiteSpace(code))
         {
@@ -660,6 +708,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         MarkExpectedLobbyClose("transition_to_game");
         lobbySocket?.Close();
         HideAllPanels();
+        SetMenuChromeVisible(false);
+        SetMusicTargetVolume(InGameMusicVolume);
         gameHudPanel.SetActive(true);
         SetText(gameStatusText, $"Game started in lobby {start.lobbyId}. WASD to move, Space to jump.");
         NetLog("Entering game. " + DescribeGameStarted(start));
@@ -1978,8 +2028,17 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
         canvasObject.AddComponent<GraphicRaycaster>();
 
+        menuBackdrop = CreateMenuBackdrop();
+        menuWordmarkRoot = CreateMenuWordmark();
+
+        loadingPanel = CreatePanel("Loading Panel");
+        AddKicker(loadingPanel.transform, "WORLD BOOT");
+        loadingTitleText = AddTitle(loadingPanel.transform, "Preparing The World");
+        AddText(loadingPanel.transform, "We wait for terrain, chunks, navigation, and spawn setup before opening multiplayer controls.", 18, MutedText, TextAnchor.MiddleLeft, 88f);
+        CreateProgressBar(loadingPanel.transform, out loadingProgressFill, out loadingProgressText);
+        loadingStatusText = AddText(loadingPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 54f);
+
         loginPanel = CreatePanel("Login Panel");
-        loginPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(680f, 620f);
         AddKicker(loginPanel.transform, "WALLOW ONLINE");
         AddTitle(loginPanel.transform, "Enter The Cave");
         AddText(loginPanel.transform, "Spin up a guest token, then create or join a lobby from the same backend.", 18, MutedText, TextAnchor.MiddleLeft, 64f);
@@ -1990,7 +2049,6 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         loginStatusText = AddText(loginPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 56f);
 
         findPanel = CreatePanel("Find Games Panel");
-        findPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(680f, 560f);
         AddKicker(findPanel.transform, "MULTIPLAYER");
         AddTitle(findPanel.transform, "Lobby Control");
         AddText(findPanel.transform, "Host a four-player cave run or enter a friend code to join their lobby.", 18, MutedText, TextAnchor.MiddleLeft, 64f);
@@ -2031,7 +2089,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         leaveLobbyButton = AddButton(utilityRow.transform, "Leave", LeaveLobby, new Color(0.82f, 0.23f, 0.25f));
         lobbyStatusText = AddText(lobbyPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 56f);
 
-        gameHudPanel = CreatePanel("Game HUD");
+        gameHudPanel = CreatePanel("Game HUD", false);
         gameHudPanel.GetComponent<RectTransform>().anchorMin = new Vector2(0f, 1f);
         gameHudPanel.GetComponent<RectTransform>().anchorMax = new Vector2(0f, 1f);
         gameHudPanel.GetComponent<RectTransform>().pivot = new Vector2(0f, 1f);
@@ -2041,26 +2099,35 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         gameStatusText = AddText(gameHudPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 78f);
     }
 
-    private GameObject CreatePanel(string name)
+    private GameObject CreatePanel(string name, bool ornate = true)
     {
         GameObject panel = new GameObject(name);
         panel.transform.SetParent(canvas.transform, false);
         Image image = panel.AddComponent<Image>();
         image.color = Panel;
+        image.raycastTarget = false;
         Shadow shadow = panel.AddComponent<Shadow>();
-        shadow.effectColor = new Color(0f, 0f, 0f, 0.5f);
-        shadow.effectDistance = new Vector2(0f, -8f);
+        shadow.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.45f);
+        shadow.effectDistance = new Vector2(8f, -10f);
         Outline outline = panel.AddComponent<Outline>();
-        outline.effectColor = new Color(1f, 1f, 1f, 0.08f);
-        outline.effectDistance = new Vector2(1f, 1f);
+        outline.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.75f);
+        outline.effectDistance = new Vector2(2f, -2f);
         RectTransform rect = panel.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.sizeDelta = new Vector2(680f, 760f);
+        rect.sizeDelta = MenuPanelSize;
+
+        CreatePanelFill(panel.transform, "Inset", new Vector2(18f, 18f), new Vector2(-18f, -18f), PanelSoft, new Color(Ink.r, Ink.g, Ink.b, 0.25f));
+        if (ornate)
+        {
+            CreatePanelStrip(panel.transform, "Footer Band", 20f, 66f, new Color(0.82f, 0.75f, 0.61f, 0.45f), new Color(Ink.r, Ink.g, Ink.b, 0.12f));
+            CreatePanelRule(panel.transform, "Top Rule", 90f, new Color(Ink.r, Ink.g, Ink.b, 0.14f));
+            CreatePanelRule(panel.transform, "Bottom Rule", 74f, new Color(Ink.r, Ink.g, Ink.b, 0.12f));
+        }
 
         VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(34, 34, 30, 30);
+        layout.padding = ornate ? new RectOffset(40, 40, 34, 34) : new RectOffset(28, 28, 24, 24);
         layout.spacing = 14f;
         layout.childControlHeight = true;
         layout.childForceExpandHeight = false;
@@ -2093,7 +2160,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private Text AddTitle(Transform parent, string value)
     {
-        Text text = AddText(parent, value, 38, Color.white, TextAnchor.MiddleLeft, 58f);
+        Text text = AddText(parent, value, 38, Ink, TextAnchor.MiddleLeft, 58f);
         text.fontStyle = FontStyle.Bold;
         return text;
     }
@@ -2115,15 +2182,59 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         return text;
     }
 
+    private void CreateProgressBar(Transform parent, out Image progressFill, out Text progressText)
+    {
+        GameObject row = AddRow(parent, "Loading Progress Row", 48f);
+
+        GameObject progressBackground = new GameObject("Progress Background");
+        progressBackground.transform.SetParent(row.transform, false);
+        Image backgroundImage = progressBackground.AddComponent<Image>();
+        backgroundImage.color = new Color(0.42f, 0.31f, 0.18f, 0.2f);
+        Outline backgroundOutline = progressBackground.AddComponent<Outline>();
+        backgroundOutline.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.32f);
+        backgroundOutline.effectDistance = new Vector2(1f, -1f);
+        RectTransform backgroundRect = progressBackground.GetComponent<RectTransform>();
+        backgroundRect.sizeDelta = new Vector2(0f, 24f);
+        LayoutElement backgroundLayout = progressBackground.AddComponent<LayoutElement>();
+        backgroundLayout.flexibleWidth = 1f;
+        backgroundLayout.preferredHeight = 24f;
+
+        GameObject fillObject = new GameObject("Progress Fill");
+        fillObject.transform.SetParent(progressBackground.transform, false);
+        progressFill = fillObject.AddComponent<Image>();
+        progressFill.color = Accent;
+        progressFill.raycastTarget = false;
+        RectTransform fillRect = progressFill.GetComponent<RectTransform>();
+        fillRect.anchorMin = new Vector2(0f, 0f);
+        fillRect.anchorMax = new Vector2(0f, 1f);
+        fillRect.offsetMin = Vector2.zero;
+        fillRect.offsetMax = Vector2.zero;
+
+        GameObject progressLabel = new GameObject("Progress Label");
+        progressLabel.transform.SetParent(row.transform, false);
+        progressText = progressLabel.AddComponent<Text>();
+        progressText.font = GetUiFont();
+        progressText.fontSize = 18;
+        progressText.fontStyle = FontStyle.Bold;
+        progressText.color = Ink;
+        progressText.alignment = TextAnchor.MiddleRight;
+        progressText.text = "0%";
+        LayoutElement labelLayout = progressLabel.AddComponent<LayoutElement>();
+        labelLayout.preferredWidth = 72f;
+    }
+
     private InputField AddInput(Transform parent, string placeholder, string initialValue, bool password)
     {
         GameObject root = new GameObject(placeholder);
         root.transform.SetParent(parent, false);
         Image image = root.AddComponent<Image>();
-        image.color = new Color(0.92f, 0.94f, 1f, 0.96f);
+        image.color = new Color(0.98f, 0.95f, 0.87f, 0.98f);
         Outline outline = root.AddComponent<Outline>();
-        outline.effectColor = new Color(1f, 1f, 1f, 0.16f);
-        outline.effectDistance = new Vector2(1f, 1f);
+        outline.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.52f);
+        outline.effectDistance = new Vector2(1f, -1f);
+        Shadow shadow = root.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.08f);
+        shadow.effectDistance = new Vector2(0f, -2f);
         InputField input = root.AddComponent<InputField>();
         input.text = initialValue;
         input.contentType = password ? InputField.ContentType.Password : InputField.ContentType.Standard;
@@ -2160,15 +2271,30 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         buttonObject.transform.SetParent(parent, false);
         Image image = buttonObject.AddComponent<Image>();
         image.color = color;
+        Outline outline = buttonObject.AddComponent<Outline>();
+        outline.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.45f);
+        outline.effectDistance = new Vector2(1f, -1f);
         Shadow shadow = buttonObject.AddComponent<Shadow>();
-        shadow.effectColor = new Color(0f, 0f, 0f, 0.28f);
-        shadow.effectDistance = new Vector2(0f, -3f);
+        shadow.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.2f);
+        shadow.effectDistance = new Vector2(0f, -4f);
         Button button = buttonObject.AddComponent<Button>();
         button.targetGraphic = image;
         button.onClick.AddListener(onClick);
         buttonObject.AddComponent<LayoutElement>().preferredHeight = 48f;
 
-        Text text = AddText(buttonObject.transform, label, 18, Color.white, TextAnchor.MiddleCenter, 48f);
+        GameObject notch = new GameObject("Notch");
+        notch.transform.SetParent(buttonObject.transform, false);
+        Image notchImage = notch.AddComponent<Image>();
+        notchImage.color = new Color(1f, 1f, 1f, 0.18f);
+        notchImage.raycastTarget = false;
+        RectTransform notchRect = notch.GetComponent<RectTransform>();
+        notchRect.anchorMin = new Vector2(0f, 0f);
+        notchRect.anchorMax = new Vector2(0f, 1f);
+        notchRect.pivot = new Vector2(0f, 0.5f);
+        notchRect.sizeDelta = new Vector2(12f, 0f);
+        notchRect.anchoredPosition = Vector2.zero;
+
+        Text text = AddText(buttonObject.transform, label, 18, new Color(1f, 0.98f, 0.94f), TextAnchor.MiddleCenter, 48f);
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
         RectTransform rect = text.GetComponent<RectTransform>();
@@ -2187,8 +2313,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         Image background = card.AddComponent<Image>();
         background.color = PanelSoft;
         Outline outline = card.AddComponent<Outline>();
-        outline.effectColor = new Color(1f, 1f, 1f, 0.08f);
-        outline.effectDistance = new Vector2(1f, 1f);
+        outline.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.22f);
+        outline.effectDistance = new Vector2(1f, -1f);
+        Shadow shadow = card.AddComponent<Shadow>();
+        shadow.effectColor = new Color(Ink.r, Ink.g, Ink.b, 0.08f);
+        shadow.effectDistance = new Vector2(0f, -2f);
         HorizontalLayoutGroup row = card.AddComponent<HorizontalLayoutGroup>();
         row.padding = new RectOffset(0, 14, 0, 0);
         row.spacing = 12f;
@@ -2215,7 +2344,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         contentLayout.childForceExpandHeight = false;
         content.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
-        Text nameText = AddText(content.transform, "Open Slot", 18, Color.white, TextAnchor.MiddleLeft, 26f);
+        Text nameText = AddText(content.transform, "Open Slot", 18, Ink, TextAnchor.MiddleLeft, 26f);
         nameText.fontStyle = FontStyle.Bold;
         Text statusText = AddText(content.transform, "Waiting for player", 14, MutedText, TextAnchor.MiddleLeft, 22f);
 
@@ -2226,8 +2355,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     {
         if (member == null)
         {
-            view.Background.color = new Color(0.09f, 0.11f, 0.18f, 0.8f);
-            view.Accent.color = new Color(0.28f, 0.31f, 0.42f);
+            view.Background.color = new Color(0.85f, 0.79f, 0.68f, 0.88f);
+            view.Accent.color = new Color(0.49f, 0.43f, 0.34f, 0.8f);
             view.NameText.text = $"Slot {slot + 1} - Open";
             view.StatusText.text = "Invite a runner with the code above";
             view.StatusText.color = MutedText;
@@ -2235,7 +2364,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         bool isLocal = currentUser != null && member.userId == currentUser.id;
-        view.Background.color = isLocal ? new Color(0.15f, 0.18f, 0.3f, 0.96f) : PanelSoft;
+        view.Background.color = isLocal ? new Color(0.97f, 0.89f, 0.74f, 0.98f) : PanelSoft;
         view.Accent.color = GetPlayerColor(member.playerId);
         view.NameText.text = $"{member.username}{(isLocal ? " (you)" : string.Empty)}";
         view.StatusText.text = member.isReady ? "Ready for the drop" : "Tuning gear";
@@ -2245,6 +2374,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private void ShowLogin(string status)
     {
         HideAllPanels();
+        SetMenuChromeVisible(true);
+        SetMusicTargetVolume(LobbyMusicVolume);
         loginPanel.SetActive(true);
         SetText(loginStatusText, status);
     }
@@ -2252,6 +2383,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private void ShowFind(string status)
     {
         HideAllPanels();
+        SetMenuChromeVisible(true);
+        SetMusicTargetVolume(LobbyMusicVolume);
         findPanel.SetActive(true);
         SetText(findStatusText, status);
     }
@@ -2259,8 +2392,20 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private void ShowLobby(string status)
     {
         HideAllPanels();
+        SetMenuChromeVisible(true);
+        SetMusicTargetVolume(LobbyMusicVolume);
         lobbyPanel.SetActive(true);
         RefreshLobbyUi(status);
+    }
+
+    private void ShowLoading(string status)
+    {
+        HideAllPanels();
+        SetMenuChromeVisible(true);
+        SetMusicTargetVolume(LobbyMusicVolume);
+        loadingPanel.SetActive(true);
+        SetText(loadingTitleText, worldBootstrapFailed ? "World Bootstrap Stalled" : "Preparing The World");
+        SetText(loadingStatusText, status);
     }
 
     private void RefreshLobbyUi(string status)
@@ -2351,10 +2496,87 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void HideAllPanels()
     {
+        loadingPanel.SetActive(false);
         loginPanel.SetActive(false);
         findPanel.SetActive(false);
         lobbyPanel.SetActive(false);
         gameHudPanel.SetActive(false);
+    }
+
+    private IEnumerator WaitForWorldBootstrapThenEnableAuth()
+    {
+        ShowLoading("Searching for world renderer...");
+
+        float searchDeadline = Time.unscaledTime + 20f;
+
+        while (worldChunkRenderer == null && Time.unscaledTime < searchDeadline)
+        {
+            worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
+            RefreshLoadingUi();
+            yield return null;
+        }
+
+        if (worldChunkRenderer == null)
+        {
+            worldBootstrapReady = true;
+            worldBootstrapFailed = true;
+            ShowLogin("World generator was not found. Multiplayer UI was unlocked without bootstrap gating.");
+            yield break;
+        }
+
+        while (!worldChunkRenderer.IsBootstrapComplete)
+        {
+            RefreshLoadingUi();
+            yield return null;
+        }
+
+        worldBootstrapReady = true;
+        ShowLogin("World loaded. Enter a display name, then authenticate with the backend.");
+    }
+
+    private void RefreshLoadingUi()
+    {
+        if (loadingPanel == null || !loadingPanel.activeSelf)
+        {
+            return;
+        }
+
+        if (worldChunkRenderer == null)
+        {
+            SetText(loadingTitleText, "Preparing The World");
+            SetText(loadingProgressText, "0%");
+            SetText(loadingStatusText, "Searching for world renderer...");
+            SetProgressFill(0f);
+            return;
+        }
+
+        float progress = Mathf.Clamp01(worldChunkRenderer.BootstrapProgress);
+        SetText(loadingTitleText, worldBootstrapFailed ? "World Bootstrap Stalled" : "Preparing The World");
+        SetText(loadingProgressText, $"{Mathf.RoundToInt(progress * 100f)}%");
+        SetText(loadingStatusText, worldChunkRenderer.BootstrapStatus);
+        SetProgressFill(progress);
+    }
+
+    private bool EnsureWorldBootstrapReadyForUiAction()
+    {
+        if (worldBootstrapReady)
+        {
+            return true;
+        }
+
+        ShowLoading("The world is still loading. Multiplayer unlocks when bootstrap is complete.");
+        return false;
+    }
+
+    private void SetProgressFill(float progress)
+    {
+        if (loadingProgressFill == null)
+        {
+            return;
+        }
+
+        RectTransform rect = loadingProgressFill.rectTransform;
+        rect.anchorMax = new Vector2(Mathf.Clamp01(progress), 1f);
     }
 
     private static int LobbyCapacity(LobbyDto lobby)
@@ -2663,7 +2885,186 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     {
         if (image != null)
         {
-            image.color = button != null && button.interactable ? enabledColor : new Color(0.2f, 0.23f, 0.32f, 0.9f);
+            image.color = button != null && button.interactable ? enabledColor : new Color(0.5f, 0.44f, 0.34f, 0.85f);
+        }
+    }
+
+    private GameObject CreateMenuBackdrop()
+    {
+        GameObject backdrop = new GameObject("Menu Backdrop");
+        backdrop.transform.SetParent(canvas.transform, false);
+        RectTransform rect = backdrop.AddComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+
+        Image image = backdrop.AddComponent<Image>();
+        image.color = new Color(0.15f, 0.11f, 0.07f, 0.4f);
+        image.raycastTarget = false;
+
+        GameObject haze = new GameObject("Menu Haze");
+        haze.transform.SetParent(backdrop.transform, false);
+        Image hazeImage = haze.AddComponent<Image>();
+        hazeImage.color = new Color(0.95f, 0.79f, 0.48f, 0.06f);
+        hazeImage.raycastTarget = false;
+        RectTransform hazeRect = haze.GetComponent<RectTransform>();
+        hazeRect.anchorMin = new Vector2(0.5f, 0.5f);
+        hazeRect.anchorMax = new Vector2(0.5f, 0.5f);
+        hazeRect.pivot = new Vector2(0.5f, 0.5f);
+        hazeRect.sizeDelta = new Vector2(1100f, 900f);
+
+        return backdrop;
+    }
+
+    private GameObject CreateMenuWordmark()
+    {
+        GameObject root = new GameObject("Menu Wordmark");
+        root.transform.SetParent(canvas.transform, false);
+        RectTransform rect = root.AddComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 1f);
+        rect.anchorMax = new Vector2(0.5f, 1f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.sizeDelta = new Vector2(760f, 170f);
+        rect.anchoredPosition = new Vector2(0f, -78f);
+
+        Text titleShadow = CreateWordmarkText(root.transform, "Fur Real?", 72, new Color(0f, 0f, 0f, 0.24f), new Vector2(5f, -5f));
+        titleShadow.alignment = TextAnchor.MiddleCenter;
+        titleShadow.raycastTarget = false;
+
+        Text title = CreateWordmarkText(root.transform, "Fur Real?", 72, new Color(0.98f, 0.95f, 0.88f), Vector2.zero);
+        title.alignment = TextAnchor.MiddleCenter;
+        title.raycastTarget = false;
+
+        Text subtitle = CreateWordmarkText(root.transform, "old-world lobby and hunting party", 20, new Color(0.93f, 0.86f, 0.7f, 0.95f), new Vector2(0f, -48f));
+        subtitle.alignment = TextAnchor.MiddleCenter;
+        subtitle.raycastTarget = false;
+        return root;
+    }
+
+    private Text CreateWordmarkText(Transform parent, string value, int size, Color color, Vector2 anchoredPosition)
+    {
+        GameObject textObject = new GameObject("Wordmark Text");
+        textObject.transform.SetParent(parent, false);
+        Text text = textObject.AddComponent<Text>();
+        text.font = GetUiFont();
+        text.fontStyle = FontStyle.Bold;
+        text.fontSize = size;
+        text.color = color;
+        text.text = value;
+        text.alignment = TextAnchor.MiddleCenter;
+        RectTransform rect = text.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = new Vector2(760f, 96f);
+        rect.anchoredPosition = anchoredPosition;
+        return text;
+    }
+
+    private void CreatePanelFill(Transform parent, string name, Vector2 offsetMin, Vector2 offsetMax, Color color, Color outlineColor)
+    {
+        GameObject fill = new GameObject(name);
+        fill.transform.SetParent(parent, false);
+        LayoutElement layout = fill.AddComponent<LayoutElement>();
+        layout.ignoreLayout = true;
+        Image image = fill.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        Outline outline = fill.AddComponent<Outline>();
+        outline.effectColor = outlineColor;
+        outline.effectDistance = new Vector2(1f, -1f);
+        RectTransform rect = fill.GetComponent<RectTransform>();
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = offsetMin;
+        rect.offsetMax = offsetMax;
+    }
+
+    private void CreatePanelStrip(Transform parent, string name, float bottomOffset, float height, Color color, Color outlineColor)
+    {
+        GameObject strip = new GameObject(name);
+        strip.transform.SetParent(parent, false);
+        LayoutElement layout = strip.AddComponent<LayoutElement>();
+        layout.ignoreLayout = true;
+        Image image = strip.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        Outline outline = strip.AddComponent<Outline>();
+        outline.effectColor = outlineColor;
+        outline.effectDistance = new Vector2(1f, -1f);
+        RectTransform rect = strip.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0f, 0f);
+        rect.anchorMax = new Vector2(1f, 0f);
+        rect.offsetMin = new Vector2(20f, bottomOffset);
+        rect.offsetMax = new Vector2(-20f, bottomOffset + height);
+    }
+
+    private void CreatePanelRule(Transform parent, string name, float bottomOffset, Color color)
+    {
+        GameObject rule = new GameObject(name);
+        rule.transform.SetParent(parent, false);
+        LayoutElement layout = rule.AddComponent<LayoutElement>();
+        layout.ignoreLayout = true;
+        Image image = rule.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        RectTransform rect = rule.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0f, 0f);
+        rect.anchorMax = new Vector2(1f, 0f);
+        rect.offsetMin = new Vector2(34f, bottomOffset);
+        rect.offsetMax = new Vector2(-34f, bottomOffset + 2f);
+    }
+
+    private void ConfigureLobbyMusic()
+    {
+        lobbyMusicSource = gameObject.AddComponent<AudioSource>();
+        lobbyMusicSource.playOnAwake = false;
+        lobbyMusicSource.loop = true;
+        lobbyMusicSource.spatialBlend = 0f;
+        lobbyMusicSource.volume = 0f;
+        lobbyMusicSource.ignoreListenerPause = true;
+        lobbyMusicSource.clip = Resources.Load<AudioClip>(LobbyMusicResourcePath);
+
+        if (lobbyMusicSource.clip == null)
+        {
+            Debug.LogWarning($"MultiplayerPrototype could not load lobby music at Resources/{LobbyMusicResourcePath}.");
+            return;
+        }
+
+        lobbyMusicSource.Play();
+    }
+
+    private void UpdateMusicVolume()
+    {
+        if (lobbyMusicSource == null || lobbyMusicSource.clip == null)
+        {
+            return;
+        }
+
+        if (!lobbyMusicSource.isPlaying)
+        {
+            lobbyMusicSource.Play();
+        }
+
+        lobbyMusicSource.volume = Mathf.MoveTowards(lobbyMusicSource.volume, targetMusicVolume, MusicFadeSpeed * Time.unscaledDeltaTime);
+    }
+
+    private void SetMusicTargetVolume(float volume)
+    {
+        targetMusicVolume = Mathf.Clamp01(volume);
+    }
+
+    private void SetMenuChromeVisible(bool visible)
+    {
+        if (menuBackdrop != null)
+        {
+            menuBackdrop.SetActive(visible);
+        }
+
+        if (menuWordmarkRoot != null)
+        {
+            menuWordmarkRoot.SetActive(visible);
         }
     }
 
