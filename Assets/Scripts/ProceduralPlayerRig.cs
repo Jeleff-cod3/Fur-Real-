@@ -18,6 +18,12 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
     [Header("Visual Scale")]
     [SerializeField] private float desiredVisualHeight = 1f;
     [SerializeField] private bool autoFitToCubeHeight = true;
+    [SerializeField] private bool autoScaleAuthoredRigToCube = true;
+    [SerializeField] private bool keepFeetAboveGround = true;
+    [SerializeField] private float feetGroundClearance = 0.03f;
+    [SerializeField] private float groundProbeHeight = 4f;
+    [SerializeField] private float groundProbeDistance = 12f;
+    [SerializeField] private LayerMask groundLayers = ~0;
 
     [Header("Held Pose")]
     [SerializeField] private float heldCenterPull = 0.5f;
@@ -35,6 +41,7 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
     private bool hasPreviousCorePosition;
     private float throwWindupUntil;
     private bool isLocalRig;
+    private bool hasAppliedAuthoredScale;
 
     public Transform CoreNode => coreNode != null ? coreNode : transform;
     public Transform RunTarget => runTarget;
@@ -57,6 +64,7 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
     {
         UpdateVelocity();
         UpdateHolders();
+        LateUpdateFootGrounding();
         RecenterRootOnCore();
 
         if (Time.time >= throwWindupUntil && ActionState == "throw_windup")
@@ -79,6 +87,8 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         {
             legController.coreMovementMode = AutoRunLegPairController.CoreMovementMode.ScriptMovesCore;
         }
+
+        FitVisualsToCubeHeight();
     }
 
     public void PlaceCoreAt(Vector3 worldPosition)
@@ -104,6 +114,12 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
     {
         if (!autoFitToCubeHeight || desiredVisualHeight <= Epsilon)
         {
+            return;
+        }
+
+        if (autoScaleAuthoredRigToCube && !hasAppliedAuthoredScale)
+        {
+            ScaleAuthoredRigToCubeHeight();
             return;
         }
 
@@ -251,6 +267,233 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
                 children[i].position = childPositions[i];
             }
         }
+    }
+
+    private void ScaleAuthoredRigToCubeHeight()
+    {
+        Bounds bounds;
+        if (!TryGetRendererBounds(out bounds) || bounds.size.y <= Epsilon)
+        {
+            return;
+        }
+
+        float visualScale = desiredVisualHeight / bounds.size.y;
+        float existingRootScale = GetSmallestAbsRootScale();
+        float authoredValueScale = visualScale * existingRootScale;
+
+        if (Mathf.Abs(1f - visualScale) <= 0.01f &&
+            Mathf.Abs(1f - authoredValueScale) <= 0.01f)
+        {
+            hasAppliedAuthoredScale = true;
+            return;
+        }
+
+        Vector3 pivot = CoreNode.position;
+        ScaleTransformTreeAroundPivot(transform, pivot, visualScale);
+        ScaleAuthoredOffsetNodes(authoredValueScale);
+        ScaleLegControllerValues(authoredValueScale);
+        ScaleArmAndSpineValues(authoredValueScale);
+        hasAppliedAuthoredScale = true;
+    }
+
+    private float GetSmallestAbsRootScale()
+    {
+        Vector3 scale = transform.localScale;
+        return Mathf.Max(
+            Epsilon,
+            Mathf.Min(
+                Mathf.Abs(scale.x),
+                Mathf.Min(Mathf.Abs(scale.y), Mathf.Abs(scale.z))));
+    }
+
+    private void ScaleTransformTreeAroundPivot(Transform root, Vector3 pivot, float scale)
+    {
+        Transform[] nodes = root.GetComponentsInChildren<Transform>(true);
+        Vector3[] originalPositions = new Vector3[nodes.Length];
+
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            originalPositions[i] = nodes[i].position;
+        }
+
+        root.localScale *= scale;
+
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            Transform node = nodes[i];
+            if (node != null)
+            {
+                node.position = pivot + (originalPositions[i] - pivot) * scale;
+            }
+        }
+    }
+
+    private void ScaleAuthoredOffsetNodes(float scale)
+    {
+        OffsetPositioningNode[] offsetNodes = GetComponentsInChildren<OffsetPositioningNode>(true);
+        for (int i = 0; i < offsetNodes.Length; i++)
+        {
+            if (offsetNodes[i] == null)
+            {
+                continue;
+            }
+
+            offsetNodes[i].staticOffset *= scale;
+            offsetNodes[i].debugLogging = false;
+        }
+    }
+
+    private void ScaleLegControllerValues(float scale)
+    {
+        if (legController == null)
+        {
+            return;
+        }
+
+        legController.stopDistance *= scale;
+        legController.slowDownRadius *= scale;
+        legController.coreGroundRayHeight *= scale;
+        legController.coreGroundRayDistance *= scale;
+        legController.coreGroundOffset *= scale;
+        legController.footRayHeight *= scale;
+        legController.footRayDistance *= scale;
+        legController.footGroundOffset *= scale;
+        legController.legReachSafetyPadding *= scale;
+
+        legController.leftLeg.manualReach *= scale;
+        legController.rightLeg.manualReach *= scale;
+    }
+
+    private void ScaleArmAndSpineValues(float scale)
+    {
+        for (int i = 0; i < armTargetSetters.Length; i++)
+        {
+            LazyIKTargetSetter setter = armTargetSetters[i];
+            if (setter == null)
+            {
+                continue;
+            }
+
+            setter.manualMaxReach *= scale;
+            setter.manualMinReach *= scale;
+            setter.maxReachSafetyPadding *= scale;
+            setter.startFollowDistance *= scale;
+            setter.stopFollowDistance *= scale;
+            setter.stopVelocity *= scale;
+        }
+
+        for (int i = 0; i < spineTargetSetters.Length; i++)
+        {
+            SpineFakeTargetSetter setter = spineTargetSetters[i];
+            if (setter == null)
+            {
+                continue;
+            }
+
+            setter.manualMaxReach *= scale;
+            setter.manualMinReach *= scale;
+            setter.maxReachSafetyPadding *= scale;
+            setter.manualTargetNoClipRadius *= scale;
+            setter.frontTargetHeightGive *= scale;
+            setter.manualSafeBoxCenter *= scale;
+            setter.manualSafeBoxHalfWidth *= scale;
+            setter.manualSafeBoxHalfDepth *= scale;
+            setter.frontBoxDepth *= scale;
+            setter.frontExitBlendDepth *= scale;
+            setter.frontBoxSidePadding *= scale;
+            setter.frontSideExitBlendDistance *= scale;
+            setter.sideBoxWidth *= scale;
+            setter.sideExitBlendWidth *= scale;
+            setter.sideBoxForwardPadding *= scale;
+            setter.sideDepthExitBlendDistance *= scale;
+            setter.manualPoleDistance *= scale;
+            setter.minimumPoleDistance *= scale;
+        }
+    }
+
+    private void LateUpdateFootGrounding()
+    {
+        if (!keepFeetAboveGround || legController == null)
+        {
+            return;
+        }
+
+        Vector3 leftFoot = GetLegTailPosition(legController.leftLeg);
+        Vector3 rightFoot = GetLegTailPosition(legController.rightLeg);
+
+        if (!TryGetGroundHeightBelow(CoreNode.position, out float groundY))
+        {
+            return;
+        }
+
+        float lowestFootY = Mathf.Min(leftFoot.y, rightFoot.y);
+        float minFootY = groundY + feetGroundClearance;
+        float lift = minFootY - lowestFootY;
+
+        if (lift <= 0f)
+        {
+            return;
+        }
+
+        CoreNode.position += Vector3.up * lift;
+        if (runTarget != null)
+        {
+            runTarget.position += Vector3.up * lift;
+        }
+        if (aimTarget != null)
+        {
+            aimTarget.position += Vector3.up * lift;
+        }
+    }
+
+    private Vector3 GetLegTailPosition(AutoRunLegPairController.Leg leg)
+    {
+        if (leg != null && leg.tailNode != null)
+        {
+            return leg.tailNode.transform.position;
+        }
+
+        if (leg != null && leg.fakeTarget != null)
+        {
+            return leg.fakeTarget.position;
+        }
+
+        return CoreNode.position;
+    }
+
+    private bool TryGetGroundHeightBelow(Vector3 nearPosition, out float groundY)
+    {
+        Vector3 origin = nearPosition + Vector3.up * groundProbeHeight;
+        RaycastHit[] hits = Physics.RaycastAll(
+            origin,
+            Vector3.down,
+            groundProbeHeight + groundProbeDistance,
+            groundLayers,
+            QueryTriggerInteraction.Ignore);
+
+        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            RaycastHit hit = hits[i];
+            if (hit.transform != null && hit.transform.IsChildOf(transform))
+            {
+                continue;
+            }
+
+            groundY = hit.point.y;
+            return true;
+        }
+
+        Terrain terrain = Terrain.activeTerrain;
+        if (terrain != null)
+        {
+            groundY = terrain.SampleHeight(nearPosition) + terrain.transform.position.y;
+            return true;
+        }
+
+        groundY = 0f;
+        return false;
     }
 
     private void ResolveReferences()
