@@ -46,6 +46,8 @@ public class PickupableWeapon : MonoBehaviour
     [SerializeField] [Range(0f, 1f)] private float meleeStickChance = 0.1f;
     [SerializeField] private float groundBreakChance = 0.5f;
     [SerializeField] private float stuckDepth = 0.25f;
+    [SerializeField] private float dropGroundProbeHeight = 8f;
+    [SerializeField] private float droppedGroundClearance = 0.04f;
 
     [Header("Visual")]
     [SerializeField] private bool alignSpearToVelocity = true;
@@ -155,6 +157,7 @@ public class PickupableWeapon : MonoBehaviour
         StopTipDamage();
 
         transform.SetParent(null);
+        SnapDroppedWeaponToGround();
         SetupWorldPhysics();
     }
 
@@ -573,6 +576,55 @@ public class PickupableWeapon : MonoBehaviour
         // colliders can tunnel through if gravity is enabled immediately after spawn.
         FreezeRigidbody();
         StopTipDamage();
+    }
+
+    private void SnapDroppedWeaponToGround()
+    {
+        int mask = GetDropGroundMask();
+
+        Vector3 origin = transform.position + Vector3.up * Mathf.Max(0.1f, dropGroundProbeHeight);
+        float distance = Mathf.Max(0.1f, dropGroundProbeHeight * 2f);
+
+        if (!Physics.Raycast(
+                origin,
+                Vector3.down,
+                out RaycastHit hit,
+                distance,
+                mask,
+                QueryTriggerInteraction.Ignore))
+        {
+            return;
+        }
+
+        Vector3 tipDirection = spearTip != null
+            ? spearTip.position - transform.position
+            : transform.forward;
+        Vector3 groundDirection = Vector3.ProjectOnPlane(tipDirection, hit.normal);
+
+        if (groundDirection.sqrMagnitude <= 0.001f)
+        {
+            groundDirection = Vector3.ProjectOnPlane(transform.forward, hit.normal);
+        }
+
+        transform.position = hit.point + hit.normal * droppedGroundClearance;
+
+        if (groundDirection.sqrMagnitude > 0.001f)
+        {
+            transform.rotation = GetWorldRotationForTipDirection(groundDirection.normalized);
+        }
+    }
+
+    private int GetDropGroundMask()
+    {
+        int groundLayer = LayerMask.NameToLayer("Ground");
+        if (groundLayer >= 0)
+        {
+            return 1 << groundLayer;
+        }
+
+        return groundLayers.value != 0
+            ? groundLayers.value
+            : Physics.DefaultRaycastLayers;
     }
 
     private void FreezeRigidbody()

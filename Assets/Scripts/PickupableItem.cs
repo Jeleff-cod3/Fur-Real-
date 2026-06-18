@@ -15,6 +15,9 @@ public class PickupableItem : MonoBehaviour
     [SerializeField] private Vector3 heldLocalEulerAngles = new Vector3(10f, 35f, 85f);
     [SerializeField] private float worldHoverOffset = 0.02f;
     [SerializeField] private float droppedAngularVelocityStrength = 3f;
+    [SerializeField] private bool settleDroppedItemsImmediately = true;
+    [SerializeField] private float dropGroundProbeHeight = 8f;
+    [SerializeField] private LayerMask dropGroundLayers = ~0;
 
     private Rigidbody rb;
     private Collider mainCollider;
@@ -90,7 +93,9 @@ public class PickupableItem : MonoBehaviour
         }
 
         transform.SetParent(null, true);
-        transform.position = worldPosition + Vector3.up * worldHoverOffset;
+        transform.position = settleDroppedItemsImmediately
+            ? GetGroundedWorldPosition(worldPosition)
+            : worldPosition + Vector3.up * worldHoverOffset;
         transform.rotation = worldRotation;
         state = ItemState.World;
         wasDroppedByPlayer = hasBeenHeld;
@@ -101,7 +106,14 @@ public class PickupableItem : MonoBehaviour
             mainCollider.isTrigger = false;
         }
 
-        EnableDropPhysics();
+        if (settleDroppedItemsImmediately)
+        {
+            FreezeRigidbody();
+        }
+        else
+        {
+            EnableDropPhysics();
+        }
     }
 
     public void Consume()
@@ -162,6 +174,40 @@ public class PickupableItem : MonoBehaviour
         rb.useGravity = true;
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = UnityEngine.Random.insideUnitSphere * droppedAngularVelocityStrength;
+    }
+
+    private Vector3 GetGroundedWorldPosition(Vector3 worldPosition)
+    {
+        int mask = GetDropGroundMask();
+
+        Vector3 origin = worldPosition + Vector3.up * Mathf.Max(0.1f, dropGroundProbeHeight);
+        float distance = Mathf.Max(0.1f, dropGroundProbeHeight * 2f);
+
+        if (Physics.Raycast(
+                origin,
+                Vector3.down,
+                out RaycastHit hit,
+                distance,
+                mask,
+                QueryTriggerInteraction.Ignore))
+        {
+            return hit.point + hit.normal * worldHoverOffset;
+        }
+
+        return worldPosition + Vector3.up * worldHoverOffset;
+    }
+
+    private int GetDropGroundMask()
+    {
+        int groundLayer = LayerMask.NameToLayer("Ground");
+        if (groundLayer >= 0)
+        {
+            return 1 << groundLayer;
+        }
+
+        return dropGroundLayers.value != 0
+            ? dropGroundLayers.value
+            : Physics.DefaultRaycastLayers;
     }
 
     private void NotifyRemovedFromWorldSupplyOnce()
