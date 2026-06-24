@@ -57,6 +57,8 @@ public class PickupableWeapon : MonoBehaviour
     private Coroutine attackRoutine;
     private SpearState state = SpearState.World;
     private Transform ownerRoot;
+    private Transform lastKnownDamageInstigator;
+    private Vector3 lastKnownDamageSourcePosition;
 
     private Vector3 heldLocalPosition;
     private Quaternion heldLocalRotation;
@@ -125,6 +127,8 @@ public class PickupableWeapon : MonoBehaviour
 
         state = SpearState.Held;
         ownerRoot = weaponHolder != null ? weaponHolder.root : null;
+        lastKnownDamageInstigator = ownerRoot;
+        lastKnownDamageSourcePosition = ownerRoot != null ? ownerRoot.position : transform.position;
         NotifyRemovedFromWorldSupplyOnce();
 
         StopAttackRoutine();
@@ -173,6 +177,7 @@ public class PickupableWeapon : MonoBehaviour
             return;
         }
 
+        UpdateDamageInstigatorFromOwner();
         attackRoutine = StartCoroutine(MeleeAttackRoutine());
     }
 
@@ -310,7 +315,7 @@ public class PickupableWeapon : MonoBehaviour
         }
 
         damagedMeleeTargets.Add(damageableComponent);
-        damageable.TakeDamage(damage);
+        ApplyDamage(damageableComponent, damageable, targetCollider.ClosestPoint(transform.position));
         Debug.Log($"Fallback melee hit {damageableComponent.name} for {damage} damage.");
     }
 
@@ -327,6 +332,7 @@ public class PickupableWeapon : MonoBehaviour
         }
 
         state = SpearState.Thrown;
+        UpdateDamageInstigatorFromOwner();
         ClearOwnerWeaponReference();
 
         StopAttackRoutine();
@@ -445,7 +451,7 @@ public class PickupableWeapon : MonoBehaviour
 
         if (damageable != null)
         {
-            damageable.TakeDamage(damage);
+            ApplyDamage(FindDamageableComponent(hit.collider), damageable, hit.point);
             StickIntoTarget(hit, velocity);
             Debug.Log($"Spear stabbed into {hit.collider.name}.");
             return;
@@ -733,7 +739,7 @@ public class PickupableWeapon : MonoBehaviour
         meleeImpactCollider = hitCollider;
         meleeImpactPoint = hitCollider.ClosestPoint(spearTip.position);
         meleeShouldStick = UnityEngine.Random.value < meleeStickChance;
-        damageable.TakeDamage(damage);
+        ApplyDamage(damageableComponent, damageable, meleeImpactPoint);
         Debug.Log($"Spear tip hit {damageableComponent.name} for {damage} damage.");
         return true;
     }
@@ -1010,5 +1016,51 @@ public class PickupableWeapon : MonoBehaviour
                 return;
             }
         }
+    }
+
+    private void ApplyDamage(Component damageableComponent, IDamageable damageable, Vector3 impactPoint)
+    {
+        if (damageableComponent is EnemyHealth enemyHealth)
+        {
+            enemyHealth.TakeDamage(damage, lastKnownDamageInstigator, ResolveDamageSourcePosition(impactPoint));
+            return;
+        }
+
+        damageable.TakeDamage(damage);
+    }
+
+    private void UpdateDamageInstigatorFromOwner()
+    {
+        if (ownerRoot == null)
+        {
+            return;
+        }
+
+        lastKnownDamageInstigator = ownerRoot;
+        lastKnownDamageSourcePosition = ownerRoot.position;
+    }
+
+    private Vector3 ResolveDamageSourcePosition(Vector3 impactPoint)
+    {
+        if (lastKnownDamageInstigator != null)
+        {
+            lastKnownDamageSourcePosition = lastKnownDamageInstigator.position;
+            return lastKnownDamageSourcePosition;
+        }
+
+        if (ownerRoot != null)
+        {
+            lastKnownDamageSourcePosition = ownerRoot.position;
+            return lastKnownDamageSourcePosition;
+        }
+
+        if (state == SpearState.Thrown)
+        {
+            lastKnownDamageSourcePosition = throwStartPosition;
+            return lastKnownDamageSourcePosition;
+        }
+
+        lastKnownDamageSourcePosition = impactPoint;
+        return lastKnownDamageSourcePosition;
     }
 }

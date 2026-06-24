@@ -6,6 +6,9 @@ public class MammothBrain : MonoBehaviour
     [SerializeField] private float decisionInterval = 0.35f;
     [SerializeField] private float recentDamageMemoryTime = 3f;
     [SerializeField] private float targetMemoryDuration = 4.5f;
+    [SerializeField] private float threatMemoryDuration = 6f;
+    [SerializeField] private float warningDistance = 18f;
+    [SerializeField] private float warningCooldown = 3.2f;
 
     private MammothState state;
     private MammothPersonality personality;
@@ -75,23 +78,45 @@ public class MammothBrain : MonoBehaviour
         float flightDrive = personality != null ? personality.GetFlightDrive() : 0.5f;
 
         bool lowHealth = personality != null && healthPercent <= personality.panicHealthThreshold;
+        bool enraged = personality != null && healthPercent <= personality.enragedHealthThreshold;
         bool damagedRecently = state != null && state.WasDamagedRecently(recentDamageMemoryTime);
         bool canSeeTarget = senses.HasTarget && senses.CanSeeTarget;
+        bool canHearTarget = senses.HasTarget && senses.CanHearTarget;
         bool hasRecentTargetMemory = state != null && state.HasRecentTargetMemory(targetMemoryDuration);
+        bool hasRecentThreatMemory = state != null && state.HasRecentThreatMemory(threatMemoryDuration);
+        bool repeatedDirectionalHits = state != null &&
+            state.WasThreatenedFromSameDirectionRecently(threatMemoryDuration, 2);
+        bool exhausted = personality != null && personality.IsExhausted;
+        bool canReachTarget = canSeeTarget && movement != null && movement.CanReachTarget(senses.Target);
+        bool hasSafeChargePath = canSeeTarget && movement != null && movement.HasSafeChargePath(senses.Target);
+        bool shouldWarnBeforeEscalating =
+            canSeeTarget &&
+            combat != null &&
+            combat.CanThreaten &&
+            state != null &&
+            !state.HasThreatenedRecently(warningCooldown) &&
+            senses.DistanceToTarget <= warningDistance &&
+            !senses.IsTargetInNormalAttackRange;
 
         if (damagedRecently)
         {
             personality?.AddAnger(0.08f);
             personality?.AddFear(0.04f);
+            personality?.AddAlertness(0.08f);
         }
 
         if (!canSeeTarget)
         {
-            if (hasRecentTargetMemory)
+            if (hasRecentThreatMemory || canHearTarget || senses.HasSuspiciousStimulus)
             {
                 if (lowHealth && damagedRecently && flightDrive > fightDrive + 0.15f)
                 {
                     return MammothActionType.RunAway;
+                }
+
+                if (repeatedDirectionalHits && !exhausted && fightDrive > flightDrive + 0.08f)
+                {
+                    personality?.AddAnger(0.04f);
                 }
 
                 return MammothActionType.Investigate;
@@ -109,9 +134,14 @@ public class MammothBrain : MonoBehaviour
             return Random.value < curiosity ? MammothActionType.Roam : MammothActionType.Idle;
         }
 
-        if (lowHealth && flightDrive > fightDrive)
+        if (lowHealth && (flightDrive > fightDrive || (personality != null && personality.pain + personality.fatigue > 1f)))
         {
             return MammothActionType.RunAway;
+        }
+
+        if (!canReachTarget)
+        {
+            return shouldWarnBeforeEscalating ? MammothActionType.Threaten : MammothActionType.Investigate;
         }
 
         if (combat != null && senses.IsTargetBehind && senses.IsTargetInTwistAttackRange && combat.CanTwistAttack)
@@ -129,13 +159,28 @@ public class MammothBrain : MonoBehaviour
             return MammothActionType.NormalAttack;
         }
 
-        if (combat != null && senses.IsTargetInChargeRange && combat.CanCharge && fightDrive > 0.45f)
+        if (combat != null &&
+            senses.IsTargetInChargeRange &&
+            combat.CanCharge &&
+            hasSafeChargePath &&
+            !exhausted &&
+            fightDrive > 0.45f)
         {
+            if (shouldWarnBeforeEscalating && !enraged && !damagedRecently)
+            {
+                return MammothActionType.Threaten;
+            }
+
             return MammothActionType.Charge;
         }
 
         if (senses.IsTargetInChaseRange && fightDrive >= flightDrive)
         {
+            if (shouldWarnBeforeEscalating && (repeatedDirectionalHits || hasRecentTargetMemory || damagedRecently))
+            {
+                return MammothActionType.Threaten;
+            }
+
             return MammothActionType.ChasePlayer;
         }
 
@@ -144,7 +189,7 @@ public class MammothBrain : MonoBehaviour
             return MammothActionType.RunAway;
         }
 
-        return MammothActionType.ChasePlayer;
+        return shouldWarnBeforeEscalating ? MammothActionType.Threaten : MammothActionType.ChasePlayer;
     }
 
     private float GetHealthPercent()

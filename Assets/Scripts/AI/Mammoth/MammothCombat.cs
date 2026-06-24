@@ -26,24 +26,34 @@ public class MammothCombat : MonoBehaviour
     [SerializeField] private float stompCooldown = 3f;
     [SerializeField] private float twistCooldown = 4f;
     [SerializeField] private float chargeCooldown = 5f;
+    [SerializeField] private float threatenCooldown = 2.8f;
+
+    [Header("Threat Display")]
+    [SerializeField] private float threatenDuration = 1.1f;
 
     [Header("Hit Detection")]
     [SerializeField] private LayerMask playerLayerMask = ~0;
 
     private MammothState state;
+    private MammothMovement movement;
+    private MammothPersonality personality;
     private float nextNormalAttackTime;
     private float nextStompTime;
     private float nextTwistTime;
     private float nextChargeTime;
+    private float nextThreatenTime;
 
     public bool CanNormalAttack => Time.time >= nextNormalAttackTime;
     public bool CanStomp => Time.time >= nextStompTime;
     public bool CanTwistAttack => Time.time >= nextTwistTime;
     public bool CanCharge => Time.time >= nextChargeTime;
+    public bool CanThreaten => Time.time >= nextThreatenTime;
 
     private void Awake()
     {
         state = GetComponent<MammothState>();
+        movement = GetComponent<MammothMovement>();
+        personality = GetComponent<MammothPersonality>();
     }
 
     public void StartNormalAttack(Transform target)
@@ -107,6 +117,16 @@ public class MammothCombat : MonoBehaviour
         StartCoroutine(ChargeDamageRoutine(target));
     }
 
+    public void StartThreatDisplay(Transform target)
+    {
+        if (!CanThreaten)
+        {
+            return;
+        }
+
+        StartCoroutine(ThreatDisplayRoutine(target));
+    }
+
     private IEnumerator AttackRoutine(
         MammothActionType actionType,
         Transform target,
@@ -161,6 +181,39 @@ public class MammothCombat : MonoBehaviour
         if (state != null)
         {
             state.isCharging = false;
+            state.isBusy = false;
+        }
+    }
+
+    private IEnumerator ThreatDisplayRoutine(Transform target)
+    {
+        if (state != null)
+        {
+            state.isBusy = true;
+            state.isRecovering = true;
+            state.SetAction(MammothActionType.Threaten);
+            state.RecordThreatDisplay();
+        }
+
+        personality?.AddAlertness(0.08f);
+        personality?.AddAnger(0.04f);
+        nextThreatenTime = Time.time + threatenCooldown;
+
+        float endTime = Time.time + threatenDuration;
+
+        while (Time.time < endTime)
+        {
+            if (movement != null && target != null)
+            {
+                movement.FaceTarget(target);
+            }
+
+            yield return null;
+        }
+
+        if (state != null)
+        {
+            state.isRecovering = false;
             state.isBusy = false;
         }
     }

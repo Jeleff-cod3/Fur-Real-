@@ -161,6 +161,9 @@ MonoBehaviour:
   decisionInterval: 0.35
   recentDamageMemoryTime: 3
   targetMemoryDuration: 4.5
+  threatMemoryDuration: 6
+  warningDistance: 18
+  warningCooldown: 3.2
 --- !u!114 &5182959838850190922
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -189,6 +192,8 @@ MonoBehaviour:
   stompCooldown: 3
   twistCooldown: 4
   chargeCooldown: 5
+  threatenCooldown: 2.8
+  threatenDuration: 1.1
   playerLayerMask:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -239,8 +244,14 @@ MonoBehaviour:
   lookAroundTurnSpeed: 4.5
   lookAroundSweepAngle: 70
   lookAroundSweepSpeed: 1.8
+  movementTurnSpeed: 6.5
+  forcedTurnSpeed: 9
+  forcedFacingDuration: 0.3
   navMeshRecoveryRadius: 80
   destinationSampleRadius: 10
+  maxPathLengthMultiplier: 1.45
+  maxChargePathCorners: 3
+  minimumChargeForwardDot: 0.45
 --- !u!114 &7342888453063376144
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -261,9 +272,16 @@ MonoBehaviour:
   enragedHealthThreshold: 0.45
   anger: 0
   fear: 0
+  alertness: 0
+  pain: 0
+  fatigue: 0
   randomizeOnAwake: 1
   angerSettleRate: 0.04
   fearSettleRate: 0.035
+  alertnessSettleRate: 0.05
+  painSettleRate: 0.025
+  fatigueRecoveryRate: 0.08
+  fatigueBuildRate: 0.16
 --- !u!114 &6472649926063186623
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -289,6 +307,11 @@ MonoBehaviour:
   lineOfSightMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  hearingRange: 22
+  proximityHearingRange: 6
+  movementNoiseThreshold: 1.3
+  suspiciousSoundMemoryDuration: 5
+  suspiciousSoundRefreshInterval: 0.35
 --- !u!114 &3656631920839052385
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -309,10 +332,17 @@ MonoBehaviour:
   isRecovering: 0
   currentTarget: {fileID: 0}
   lastKnownTargetPosition: {x: 0, y: 0, z: 0}
+  lastHeardThreatPosition: {x: 0, y: 0, z: 0}
+  lastDamageSourcePosition: {x: 0, y: 0, z: 0}
+  lastDamageDirection: {x: 0, y: 0, z: 0}
   lastActionChangeTime: 0
   lastDamageTime: 0
   lastTargetSeenTime: 0
   lastTargetLostTime: 0
+  lastHeardThreatTime: 0
+  lastThreatenTime: 0
+  repeatedThreatHitCount: 0
+  hasDamageSource: 0
 --- !u!114 &8764205223075664422
 MonoBehaviour:
   m_ObjectHideFlags: 0

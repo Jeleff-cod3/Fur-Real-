@@ -11,6 +11,7 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
     private MammothState mammothState;
     private MammothPersonality mammothPersonality;
+    private MammothSenses mammothSenses;
 
     public event Action<int, int> HealthChanged;
     public event Action<EnemyHealth> Died;
@@ -55,10 +56,34 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
     public void TakeDamage(int damage)
     {
+        TakeDamage(damage, null, null);
+    }
+
+    public void TakeDamage(int damage, Vector3 sourcePosition)
+    {
+        TakeDamage(damage, null, sourcePosition);
+    }
+
+    public void TakeDamage(int damage, Transform sourceTransform)
+    {
+        TakeDamage(damage, sourceTransform, sourceTransform != null ? sourceTransform.position : (Vector3?)null);
+    }
+
+    public void TakeDamage(int damage, Transform sourceTransform, Vector3? sourcePosition)
+    {
         if (IsDead)
         {
             return;
         }
+
+        damage = Mathf.Max(0, damage);
+        if (damage <= 0)
+        {
+            return;
+        }
+
+        Vector3? resolvedSourcePosition = ResolveSourcePosition(sourceTransform, sourcePosition);
+        float normalizedDamage = maxHealth > 0 ? Mathf.Clamp01((float)damage / maxHealth) : 0f;
 
         currentHealth = Mathf.Max(0, currentHealth - damage);
         HealthChanged?.Invoke(currentHealth, maxHealth);
@@ -66,13 +91,20 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
         if (mammothState != null)
         {
-            mammothState.MarkDamaged();
+            mammothState.MarkDamaged(resolvedSourcePosition);
+        }
+
+        if (mammothSenses != null && resolvedSourcePosition.HasValue)
+        {
+            mammothSenses.ReportSuspiciousSound(resolvedSourcePosition.Value, 0.85f + normalizedDamage);
         }
 
         if (mammothPersonality != null)
         {
-            mammothPersonality.AddAnger(0.18f);
-            mammothPersonality.AddFear(0.08f);
+            mammothPersonality.AddAnger(Mathf.Lerp(0.12f, 0.28f, normalizedDamage));
+            mammothPersonality.AddFear(Mathf.Lerp(0.05f, 0.18f, normalizedDamage));
+            mammothPersonality.AddPain(Mathf.Lerp(0.08f, 0.25f, normalizedDamage));
+            mammothPersonality.AddAlertness(Mathf.Lerp(0.12f, 0.28f, normalizedDamage));
         }
 
         Debug.Log($"{gameObject.name} took {damage} damage. HP: {currentHealth}/{maxHealth}");
@@ -143,6 +175,11 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         {
             mammothPersonality = GetComponent<MammothPersonality>();
         }
+
+        if (mammothSenses == null)
+        {
+            mammothSenses = GetComponent<MammothSenses>();
+        }
     }
 
     private void ResetMammothState()
@@ -160,9 +197,33 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         mammothState.previousAction = MammothActionType.Idle;
         mammothState.currentTarget = null;
         mammothState.lastKnownTargetPosition = Vector3.zero;
+        mammothState.lastHeardThreatPosition = Vector3.zero;
+        mammothState.lastDamageSourcePosition = Vector3.zero;
+        mammothState.lastDamageDirection = Vector3.zero;
         mammothState.lastDamageTime = -999f;
         mammothState.lastTargetSeenTime = 0f;
         mammothState.lastTargetLostTime = 0f;
+        mammothState.lastHeardThreatTime = 0f;
+        mammothState.lastThreatenTime = 0f;
+        mammothState.repeatedThreatHitCount = 0;
+        mammothState.hasDamageSource = false;
         mammothState.lastActionChangeTime = Time.time;
+        mammothSenses?.ResetAwareness();
+        mammothPersonality?.ResetRuntimeEmotion();
+    }
+
+    private static Vector3? ResolveSourcePosition(Transform sourceTransform, Vector3? sourcePosition)
+    {
+        if (sourcePosition.HasValue)
+        {
+            return sourcePosition.Value;
+        }
+
+        if (sourceTransform != null)
+        {
+            return sourceTransform.position;
+        }
+
+        return null;
     }
 }

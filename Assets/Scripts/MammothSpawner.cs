@@ -425,7 +425,7 @@ public class MammothSpawner : MonoBehaviour
         MammothSenses senses = mammothObject.GetComponent<MammothSenses>();
         if (senses != null)
         {
-            senses.SetTarget(null);
+            senses.ResetAwareness();
         }
 
         MammothPersonality personality = mammothObject.GetComponent<MammothPersonality>();
