@@ -4,7 +4,7 @@ using UnityEngine;
 public class RotationAssigner : MonoBehaviour
 {
     [Header("Debug")]
-    public bool debugLogging = true;
+    public bool debugLogging = false;
 
     [Header("Pairs")]
     public RotatableNodePair[] nodePairs;
@@ -117,7 +117,7 @@ public class RotationAssigner : MonoBehaviour
             {
                 RotatableNodePair pair = nodePairs[i];
 
-                if (pair == null)
+                if (pair == null || !pair.isActiveAndEnabled)
                 {
                     continue;
                 }
@@ -138,7 +138,7 @@ public class RotationAssigner : MonoBehaviour
             {
                 RotatableMeshingOffsetNode fakeParent = fakeOffsetParents[i];
 
-                if (fakeParent == null)
+                if (fakeParent == null || !fakeParent.isActiveAndEnabled)
                 {
                     continue;
                 }
@@ -243,7 +243,7 @@ public class RotationAssigner : MonoBehaviour
         {
             for (int i = 0; i < nodePairs.Length; i++)
             {
-                if (nodePairs[i] != null)
+                if (nodePairs[i] != null && nodePairs[i].isActiveAndEnabled)
                 {
                     count++;
                 }
@@ -261,7 +261,9 @@ public class RotationAssigner : MonoBehaviour
         {
             for (int i = 0; i < fakeOffsetParents.Length; i++)
             {
-                if (fakeOffsetParents[i] != null && fakeOffsetParents[i].GetMeshingOffsetNode() != null)
+                if (fakeOffsetParents[i] != null &&
+                    fakeOffsetParents[i].isActiveAndEnabled &&
+                    fakeOffsetParents[i].GetMeshingOffsetNode() != null)
                 {
                     count++;
                 }

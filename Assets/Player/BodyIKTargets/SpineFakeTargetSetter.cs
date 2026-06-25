@@ -107,11 +107,12 @@ public class SpineFakeTargetSetter : MonoBehaviour
     [Header("Spine IK Tail Sync")]
     public NodeState spineTailNode;
     public bool autoUseSolverTailAsSpineTailNode = true;
-    public bool moveSpineTailNodeToFakeTarget = true;
+    public bool moveSpineTailNodeToFakeTarget = false;
 
     [Header("Optional Solver Link")]
     public LimbSolver limbSolver;
-    public bool autoUseSolverTailAsFakeTarget = true;
+    public bool useFakeTargetAsSolverTailOverride = true;
+    public bool autoUseSolverTailAsFakeTarget = false;
     public bool autoUseSolverStartAsCore = true;
     public bool assignFakePoleToSolverNodes = true;
 
@@ -210,11 +211,21 @@ public class SpineFakeTargetSetter : MonoBehaviour
     [Range(0.01f, 0.95f)]
     public float maxNoClipRadiusAsReachFraction = 0.4f;
 
+    [Tooltip("Minimum no-clip ring as a fraction of the current spine reach. This prevents scale-down from collapsing the fake target through the core and spinning/bending left.")]
+    [Range(0f, 0.3f)]
+    public float minNoClipRadiusAsReachFraction = 0.075f;
+
+    [Tooltip("Minimum absolute world-zero guard radius after runtime scaling.")]
+    [Min(0f)] public float minimumWorldZeroGuardRadius = 0.08f;
+
     [Tooltip("Stable local direction used when a rule asks for exact 0,0. X = side, Y = forward.")]
     public Vector2 zeroTargetFallbackDirection = new Vector2(0f, 1f);
 
     [Header("Safe Box")]
     public bool autoFitSafeBoxToReach = true;
+
+    [Tooltip("When the real target is inside the safe box, hold the fake target at the safe neutral point instead of chasing the target. This makes the box actually define a dead-zone instead of always rotating the spine toward the mouse.")]
+    public bool holdFakeTargetInsideSafeBox = true;
 
     public float autoSafeBoxForwardStart = 0f;
 
@@ -348,11 +359,28 @@ public class SpineFakeTargetSetter : MonoBehaviour
     [Tooltip("Spine-specific: lets the solver use its tail as a target handle, then restores that transform to the solved spine end after solving so attachments do not follow the high target handle.")]
     public bool restoreSolverTailToSolvedEndAfterSolving = true;
 
+    [Tooltip("If evaluation references are temporarily missing, hold the IK handle at a body-relative fallback instead of leaving it at a stale world-zero position.")]
+    public bool holdTargetAtCoreWhenEvaluationFails = true;
+
+    [Tooltip("Hard safety: if the spine target would be written at world zero while the body is elsewhere, rewrite it beside the body instead.")]
+    public bool preventWorldZeroSpineTarget = true;
+
+    [Min(0f)] public float worldZeroGuardRadius = 0.2f;
+
+    [Tooltip("Last-resort safety mode. Leave this off for normal play; the spine chain should move with the body, not be crushed to a tiny body-relative fallback every frame.")]
+    public bool forceBodyAnchoredTargetEveryFrame = false;
+
+    [Tooltip("Forward distance from body/core used by the body-anchored fallback target.")]
+    [Min(0f)] public float bodyAnchoredTargetForwardDistance = 0.25f;
+
+    [Tooltip("Height along the movement plane normal used by the body-anchored fallback target.")]
+    public float bodyAnchoredTargetPlaneHeight = 0.35f;
+
     [SerializeField]
     private RuntimeDebugState debugState;
 
     [Header("Debug Gizmos")]
-    public bool drawDebugGizmos = true;
+    public bool drawDebugGizmos = false;
     public Color safeBoxColor = new Color(0.2f, 0.8f, 1f, 0.8f);
     public Color frontBoxColor = new Color(0.5f, 1f, 0.6f, 0.75f);
     public Color sideBoxColor = new Color(1f, 0.65f, 0.25f, 0.75f);
@@ -450,6 +478,18 @@ public class SpineFakeTargetSetter : MonoBehaviour
         }
     }
 
+    private void LateUpdate()
+    {
+        if (forceBodyAnchoredTargetEveryFrame)
+        {
+            ForceBodyAnchoredTarget();
+        }
+        else
+        {
+            RepairSpineTargetIfItHitWorldZero(fakeTarget != null ? fakeTarget.position : Vector3.zero);
+        }
+    }
+
     [ContextMenu("Capture Static Box Basis")]
     public void CaptureStaticBasis()
     {
@@ -514,6 +554,7 @@ public class SpineFakeTargetSetter : MonoBehaviour
 
         if (!TryEvaluate(out state))
         {
+            ApplyEvaluationFailureFallback();
             return false;
         }
 
@@ -588,6 +629,8 @@ public class SpineFakeTargetSetter : MonoBehaviour
             state.planeNormal
         );
 
+        finalTargetWorld = SanitizeSpineTargetWorldPosition(finalTargetWorld);
+
         WriteWorldPosition(
             fakeTarget,
             targetOffsetNode,
@@ -595,6 +638,16 @@ public class SpineFakeTargetSetter : MonoBehaviour
             targetDynamicOffsetId,
             finalTargetWorld
         );
+        RepairSpineTargetIfItHitWorldZero(finalTargetWorld);
+
+        if (limbSolver != null && fakeTarget != null && useFakeTargetAsSolverTailOverride)
+        {
+            limbSolver.tailTargetOverride = fakeTarget;
+        }
+        else if (limbSolver != null && !useFakeTargetAsSolverTailOverride)
+        {
+            limbSolver.tailTargetOverride = null;
+        }
 
         if (moveSpineTailNodeToFakeTarget && spineTailNode != null)
         {
@@ -617,6 +670,177 @@ public class SpineFakeTargetSetter : MonoBehaviour
         debugState = state;
 
         return true;
+    }
+
+    private void ApplyEvaluationFailureFallback()
+    {
+        if (!holdTargetAtCoreWhenEvaluationFails)
+        {
+            return;
+        }
+
+        ResolveReferences();
+
+        if (coreNode == null || fakeTarget == null)
+        {
+            return;
+        }
+
+        Vector3 normal = GetLivePlaneNormal();
+        Vector3 forward = GetLiveForwardAxis(normal);
+
+        if (forward.sqrMagnitude <= Epsilon)
+        {
+            forward = Vector3.ProjectOnPlane(coreNode.forward, normal);
+        }
+
+        if (forward.sqrMagnitude <= Epsilon)
+        {
+            forward = Vector3.forward;
+        }
+
+        forward.Normalize();
+
+        Vector3 fallbackTarget = forceBodyAnchoredTargetEveryFrame
+            ? GetBodyAnchoredTargetWorldPosition()
+            : coreNode.position +
+              forward * Mathf.Max(initialFakeTargetDistanceFromCore, manualTargetNoClipRadius, 0.05f) +
+              normal.normalized * fakeTargetPlaneHeight;
+        fallbackTarget = SanitizeSpineTargetWorldPosition(fallbackTarget);
+
+        WriteWorldPosition(
+            fakeTarget,
+            targetOffsetNode,
+            writeTargetThroughOffsetNode,
+            targetDynamicOffsetId,
+            fallbackTarget
+        );
+        RepairSpineTargetIfItHitWorldZero(fallbackTarget);
+
+        if (limbSolver != null && useFakeTargetAsSolverTailOverride)
+        {
+            limbSolver.tailTargetOverride = fakeTarget;
+        }
+
+        if (moveSpineTailNodeToFakeTarget && spineTailNode != null)
+        {
+            spineTailNode.transform.position = fallbackTarget;
+        }
+    }
+
+    public void ForceBodyAnchoredTarget()
+    {
+        ResolveReferences();
+
+        if (coreNode == null || fakeTarget == null)
+        {
+            return;
+        }
+
+        Vector3 targetWorld = SanitizeSpineTargetWorldPosition(GetBodyAnchoredTargetWorldPosition());
+
+        WriteWorldPosition(
+            fakeTarget,
+            targetOffsetNode,
+            writeTargetThroughOffsetNode,
+            targetDynamicOffsetId,
+            targetWorld
+        );
+
+        RepairSpineTargetIfItHitWorldZero(targetWorld);
+
+        if (limbSolver != null)
+        {
+            limbSolver.tailTargetOverride = fakeTarget;
+            limbSolver.clampTailToReachBeforeSolving = true;
+            limbSolver.enforceMinimumReachOnTail = false;
+        }
+    }
+
+    private Vector3 GetBodyAnchoredTargetWorldPosition()
+    {
+        if (coreNode == null)
+        {
+            return Vector3.zero;
+        }
+
+        Vector3 normal = GetLivePlaneNormal();
+        Vector3 forward = GetLiveForwardAxis(normal);
+
+        if (forward.sqrMagnitude <= Epsilon)
+        {
+            forward = Vector3.ProjectOnPlane(coreNode.forward, normal);
+        }
+
+        if (forward.sqrMagnitude <= Epsilon)
+        {
+            forward = Vector3.forward;
+        }
+
+        return coreNode.position +
+               forward.normalized * bodyAnchoredTargetForwardDistance +
+               normal.normalized * bodyAnchoredTargetPlaneHeight;
+    }
+
+    private Vector3 SanitizeSpineTargetWorldPosition(Vector3 requestedWorldPosition)
+    {
+        if (!preventWorldZeroSpineTarget || coreNode == null)
+        {
+            return requestedWorldPosition;
+        }
+
+        bool targetLooksLikeWorldZero = requestedWorldPosition.sqrMagnitude <= worldZeroGuardRadius * worldZeroGuardRadius;
+        bool coreIsAwayFromWorldZero = coreNode.position.sqrMagnitude > worldZeroGuardRadius * worldZeroGuardRadius;
+
+        if (!targetLooksLikeWorldZero || !coreIsAwayFromWorldZero)
+        {
+            return requestedWorldPosition;
+        }
+
+        Vector3 normal = GetLivePlaneNormal();
+        Vector3 forward = GetLiveForwardAxis(normal);
+        if (forward.sqrMagnitude <= Epsilon)
+        {
+            forward = Vector3.ProjectOnPlane(coreNode.forward, normal);
+        }
+
+        if (forward.sqrMagnitude <= Epsilon)
+        {
+            forward = Vector3.forward;
+        }
+
+        float distance = forceBodyAnchoredTargetEveryFrame
+            ? bodyAnchoredTargetForwardDistance
+            : Mathf.Max(initialFakeTargetDistanceFromCore, manualTargetNoClipRadius, 0.1f);
+        float height = forceBodyAnchoredTargetEveryFrame
+            ? bodyAnchoredTargetPlaneHeight
+            : fakeTargetPlaneHeight;
+        return coreNode.position + forward.normalized * distance + normal.normalized * height;
+    }
+
+    private void RepairSpineTargetIfItHitWorldZero(Vector3 intendedWorldPosition)
+    {
+        if (!preventWorldZeroSpineTarget || fakeTarget == null || coreNode == null)
+        {
+            return;
+        }
+
+        bool actualLooksLikeWorldZero = fakeTarget.position.sqrMagnitude <= worldZeroGuardRadius * worldZeroGuardRadius;
+        bool coreIsAwayFromWorldZero = coreNode.position.sqrMagnitude > worldZeroGuardRadius * worldZeroGuardRadius;
+
+        if (!actualLooksLikeWorldZero || !coreIsAwayFromWorldZero)
+        {
+            return;
+        }
+
+        Vector3 repaired = SanitizeSpineTargetWorldPosition(intendedWorldPosition);
+        if (targetOffsetNode != null)
+        {
+            targetOffsetNode.SetDynamicOffsetToReachWorldPosition(targetDynamicOffsetId, repaired);
+            targetOffsetNode.ApplyPosition();
+        }
+
+        fakeTarget.position = repaired;
     }
 
     public bool TryEvaluate(out RuntimeDebugState state)
@@ -746,6 +970,17 @@ public class SpineFakeTargetSetter : MonoBehaviour
         if (IsInsideBox(realLocal, safeBoxCenter, safeBoxHalfWidth, safeBoxHalfDepth))
         {
             activeRegion = ActiveRuleRegion.SafeBox;
+
+            if (holdFakeTargetInsideSafeBox)
+            {
+                desiredLocal = ApplyDistanceLimits(
+                    safeBoxCenter,
+                    maxReach,
+                    enforceMinimumReachInsideSpecialBoxes ? minReach : 0f,
+                    noClipRadius,
+                    GetStableFallbackDirection(safeBoxCenter)
+                );
+            }
         }
 
         float frontWeight = CalculateFrontWeight(
@@ -1387,6 +1622,27 @@ public class SpineFakeTargetSetter : MonoBehaviour
                 fakeTarget = limbSolver.tail.transform;
             }
 
+            if (limbSolver.tail != null && fakeTarget == limbSolver.tail.transform)
+            {
+                fakeTarget = CreateRuntimeTargetHandle(limbSolver.tail.transform);
+                targetOffsetNode = null;
+                moveSpineTailNodeToFakeTarget = false;
+            }
+
+            if (fakeTarget == null && limbSolver.tail != null)
+            {
+                fakeTarget = CreateRuntimeTargetHandle(limbSolver.tail.transform);
+            }
+
+            if (fakeTarget != null && useFakeTargetAsSolverTailOverride)
+            {
+                limbSolver.tailTargetOverride = fakeTarget;
+            }
+            else if (!useFakeTargetAsSolverTailOverride)
+            {
+                limbSolver.tailTargetOverride = null;
+            }
+
             if (autoUseSolverStartAsCore && coreNode == null && limbSolver.start != null)
             {
                 coreNode = limbSolver.start.transform;
@@ -1407,6 +1663,16 @@ public class SpineFakeTargetSetter : MonoBehaviour
         {
             poleOffsetNode = fakePole.GetComponent<OffsetPositioningNode>();
         }
+    }
+
+    private Transform CreateRuntimeTargetHandle(Transform source)
+    {
+        GameObject target = new GameObject(name + "_SpineTargetHandle");
+        target.transform.SetParent(transform, true);
+        target.transform.position = source != null ? source.position : transform.position;
+        target.transform.rotation = source != null ? source.rotation : Quaternion.identity;
+        target.transform.localScale = Vector3.one;
+        return target.transform;
     }
 
     private void CaptureInitialReachData()
@@ -1509,8 +1775,11 @@ public class SpineFakeTargetSetter : MonoBehaviour
         radius *= targetNoClipRadiusMultiplier;
 
         float maxAllowed = Mathf.Max(0f, maxReach * maxNoClipRadiusAsReachFraction);
+        float minAllowed = targetNoClipRadiusSource == TargetNoClipRadiusSource.None
+            ? 0f
+            : Mathf.Max(0f, maxReach * minNoClipRadiusAsReachFraction);
 
-        return Mathf.Clamp(radius, 0f, maxAllowed);
+        return Mathf.Clamp(Mathf.Max(radius, minAllowed), 0f, maxAllowed);
     }
 
     private void GetEffectiveSafeBox(

@@ -29,8 +29,14 @@ public class LimbSolver : MonoBehaviour
     public bool autoInitializeIfNeeded = true;
     public bool solveInLateUpdate = true;
 
+    [Tooltip("When true, a ProceduralPlayerRig frame driver invokes Apply explicitly after targets and offsets have been updated.")]
+    public bool managedByProceduralRig = false;
+
     [Tooltip("Safety clamp. The spine target setter should already keep the target valid, but this prevents impossible targets from breaking the solver.")]
     public bool clampTailToReachBeforeSolving = true;
+
+    [Tooltip("If true, initialization captures bone lengths from the current transform pose. Runtime-sized legs can disable this so NodeState.Mylength stays authoritative.")]
+    public bool captureBoneLengthsOnInitialize = true;
 
     [Tooltip("Usually false for normal limbs. The spine target setter handles minimum/default bend separately.")]
     public bool enforceMinimumReachOnTail = false;
@@ -42,9 +48,12 @@ public class LimbSolver : MonoBehaviour
     [Tooltip("If true, tail is treated as a temporary IK target handle during solving, then restored to the first solved node after the handle. This is useful when other systems bind offsets/mesh to the spine tail transform.")]
     public bool restoreTailToSolvedEndAfterSolving = false;
 
+    [Tooltip("Optional separate IK target. When assigned, the solver reads this transform as the tail target without teleporting the visible tail node before solving.")]
+    public Transform tailTargetOverride;
+
     [Header("Debug")]
     public bool debugLogs = false;
-    public bool drawDebugLines = true;
+    public bool drawDebugLines = false;
     public Color debugLineColor = Color.white;
 
     public bool IsInitialized { get; private set; }
@@ -72,6 +81,11 @@ public class LimbSolver : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (managedByProceduralRig)
+        {
+            return;
+        }
+
         if (solveInLateUpdate)
         {
             Apply();
@@ -101,7 +115,7 @@ public class LimbSolver : MonoBehaviour
         // Store bone vectors.
         for (int i = 0; i < ChainNodes.Count - 1; i++)
         {
-            ChainNodes[i].InitializeLengthFromNext(true);
+            ChainNodes[i].InitializeLengthFromNext(captureBoneLengthsOnInitialize);
         }
 
         double totalLength = 0.0;
@@ -153,7 +167,7 @@ public class LimbSolver : MonoBehaviour
 
         InitialTargetDistanceFromStart =
             start != null && tail != null
-                ? Vector3.Distance(tail.transform.position, start.transform.position)
+                ? Vector3.Distance(GetTailTargetWorldPosition(), start.transform.position)
                 : 0f;
 
         IsInitialized = CumulativeBones > Epsilon;
@@ -186,16 +200,27 @@ public class LimbSolver : MonoBehaviour
             return false;
         }
 
+        Vector3 targetWorldPosition = GetTailTargetWorldPosition();
+
         if (clampTailToReachBeforeSolving)
         {
-            tail.transform.position = ClampWorldPointToReach(
-                tail.transform.position,
+            targetWorldPosition = ClampWorldPointToReach(
+                targetWorldPosition,
                 enforceMinimumReachOnTail
             );
+
+            if (tailTargetOverride != null)
+            {
+                tailTargetOverride.position = targetWorldPosition;
+            }
+            else
+            {
+                tail.transform.position = targetWorldPosition;
+            }
         }
 
         double targetDistance =
-            Vector3.Distance(tail.transform.position, start.transform.position);
+            Vector3.Distance(targetWorldPosition, start.transform.position);
 
         NodeState current = tail;
         int guard = 0;
@@ -209,7 +234,10 @@ public class LimbSolver : MonoBehaviour
 
             Transform pole = current.pole != null ? current.pole : fallbackPole;
 
-            Vector3 origin = current.transform.position;
+            Vector3 origin =
+                current == tail && tailTargetOverride != null
+                    ? targetWorldPosition
+                    : current.transform.position;
             Vector3 rootDistance = start.transform.position - origin;
 
             float rootMag = rootDistance.magnitude;
@@ -489,7 +517,7 @@ public class LimbSolver : MonoBehaviour
     {
         if (tail != null && start != null)
         {
-            Vector3 currentDirection = tail.transform.position - start.transform.position;
+            Vector3 currentDirection = GetTailTargetWorldPosition() - start.transform.position;
 
             if (currentDirection.sqrMagnitude > Epsilon)
             {
@@ -520,5 +548,15 @@ public class LimbSolver : MonoBehaviour
         }
 
         return value;
+    }
+
+    private Vector3 GetTailTargetWorldPosition()
+    {
+        if (tailTargetOverride != null)
+        {
+            return tailTargetOverride.position;
+        }
+
+        return tail != null ? tail.transform.position : Vector3.zero;
     }
 }

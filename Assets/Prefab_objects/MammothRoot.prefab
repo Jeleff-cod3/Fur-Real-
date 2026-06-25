@@ -239,6 +239,9 @@ MonoBehaviour:
   lookAroundTurnSpeed: 4.5
   lookAroundSweepAngle: 70
   lookAroundSweepSpeed: 1.8
+  movementTurnSpeed: 6.5
+  forcedTurnSpeed: 9
+  forcedFacingDuration: 0.3
   navMeshRecoveryRadius: 80
   destinationSampleRadius: 10
 --- !u!114 &7342888453063376144

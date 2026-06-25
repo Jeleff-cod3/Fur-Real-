@@ -136,7 +136,7 @@ public class BodyRotationBoxAssigner : MonoBehaviour
     private RuntimeDebugState debugState;
 
     [Header("Debug Gizmos")]
-    public bool drawDebugGizmos = true;
+    public bool drawDebugGizmos = false;
     public Color boxColor = new Color(0.2f, 0.8f, 1f, 0.8f);
     public Color targetColor = new Color(1f, 0.75f, 0.1f, 0.9f);
     public Color protectedPointColor = new Color(0.5f, 1f, 0.6f, 0.9f);

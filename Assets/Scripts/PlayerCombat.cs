@@ -120,6 +120,12 @@ public class PlayerCombat : MonoBehaviour
             yield break;
         }
 
+        if (TryGetAimDirection(out Vector3 releaseDirection))
+        {
+            throwDirection = releaseDirection;
+            FaceDirectionImmediately(releaseDirection);
+        }
+
         weaponPickup.ThrowEquippedWeapon(throwDirection);
 
         Debug.Log("Spear thrown.");

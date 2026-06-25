@@ -62,7 +62,7 @@ public class DirectTargetRotationAssigner : MonoBehaviour
     private RuntimeDebugState debugState;
 
     [Header("Debug Gizmos")]
-    public bool drawDebugGizmos = true;
+    public bool drawDebugGizmos = false;
     public Color targetColor = new Color(1f, 0.75f, 0.1f, 0.9f);
     public Color forwardColor = new Color(0.2f, 0.8f, 1f, 0.9f);
 

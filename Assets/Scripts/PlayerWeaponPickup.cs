@@ -11,6 +11,7 @@ public class PlayerWeaponPickup : MonoBehaviour
     private Transform weaponHolder;
     private SphereCollider pickupTrigger;
     private PlayerCarryController carryController;
+    private ProceduralPlayerRig proceduralRig;
 
     private PickupableWeapon nearbyWeapon;
     private PickupableWeapon equippedWeapon;
@@ -48,6 +49,11 @@ public class PlayerWeaponPickup : MonoBehaviour
 
         if (Keyboard.current.eKey.wasPressedThisFrame)
         {
+            if (equippedWeapon == null && nearbyWeapon == null)
+            {
+                nearbyWeapon = FindClosestOverlappingWeapon();
+            }
+
             if (equippedWeapon == null && nearbyWeapon != null)
             {
                 if (carryController != null && !carryController.TryClaim(nearbyWeapon))
@@ -164,6 +170,41 @@ public class PlayerWeaponPickup : MonoBehaviour
         }
     }
 
+    private PickupableWeapon FindClosestOverlappingWeapon()
+    {
+        Collider[] overlaps = Physics.OverlapSphere(
+            transform.position,
+            pickupRangeRadius,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Collide);
+
+        PickupableWeapon closest = null;
+        float closestDistanceSqr = float.MaxValue;
+
+        for (int i = 0; i < overlaps.Length; i++)
+        {
+            PickupableWeapon weapon = overlaps[i] != null
+                ? overlaps[i].GetComponentInParent<PickupableWeapon>()
+                : null;
+
+            if (weapon == null || !weapon.CanBePickedUpFromWorld)
+            {
+                continue;
+            }
+
+            float distanceSqr = (weapon.transform.position - transform.position).sqrMagnitude;
+            if (distanceSqr >= closestDistanceSqr)
+            {
+                continue;
+            }
+
+            closest = weapon;
+            closestDistanceSqr = distanceSqr;
+        }
+
+        return closest;
+    }
+
     private void EnsureSetup()
     {
         if (carryController == null)
@@ -175,9 +216,16 @@ public class PlayerWeaponPickup : MonoBehaviour
             }
         }
 
+        if (proceduralRig == null)
+        {
+            proceduralRig = GetComponent<ProceduralPlayerRig>();
+        }
+
         if (weaponHolder == null)
         {
-            weaponHolder = FindOrCreateChild(weaponHolderName, weaponHolderLocalPosition);
+            weaponHolder = proceduralRig != null && proceduralRig.WeaponHolder != null
+                ? proceduralRig.WeaponHolder
+                : FindOrCreateChild(weaponHolderName, weaponHolderLocalPosition);
         }
 
         EnsurePickupTrigger();

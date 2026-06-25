@@ -78,7 +78,12 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private Vector3 lastSentEulerAngles;
     private Vector3 lastSentMoveTarget;
     private Vector3 lastSentAimTarget;
+    private Vector3 lastSentGaitForward;
+    private Vector3 lastSentLeftArmTarget;
+    private Vector3 lastSentRightArmTarget;
     private int lastSentActionSeq;
+    private string lastSentHeldObjectType = "none";
+    private string lastSentHeldItemType = "";
     private float nextGamePingTime;
     private float nextLobbyPingTime;
     private float nextHudRefreshTime;
@@ -1304,10 +1309,33 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                 return true;
             }
 
+            if ((rig.GaitForward - lastSentGaitForward).sqrMagnitude >= MinPositionDeltaSqr)
+            {
+                return true;
+            }
+
+            if ((rig.LeftArmTargetWorld - lastSentLeftArmTarget).sqrMagnitude >= MinPositionDeltaSqr)
+            {
+                return true;
+            }
+
+            if ((rig.RightArmTargetWorld - lastSentRightArmTarget).sqrMagnitude >= MinPositionDeltaSqr)
+            {
+                return true;
+            }
+
             if (rig.ActionSequence != lastSentActionSeq)
             {
                 return true;
             }
+        }
+
+        string heldObjectType = GetHeldObjectType(localCube);
+        string heldItemType = GetHeldItemType(localCube);
+        if (!string.Equals(heldObjectType, lastSentHeldObjectType, StringComparison.Ordinal) ||
+            !string.Equals(heldItemType, lastSentHeldItemType, StringComparison.Ordinal))
+        {
+            return true;
         }
 
         return false;
@@ -1326,8 +1354,58 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         {
             lastSentMoveTarget = rig.RunTarget != null ? rig.RunTarget.position : cubeTransform.position;
             lastSentAimTarget = rig.AimTarget != null ? rig.AimTarget.position : cubeTransform.position + cubeTransform.forward;
+            lastSentGaitForward = rig.GaitForward;
+            lastSentLeftArmTarget = rig.LeftArmTargetWorld;
+            lastSentRightArmTarget = rig.RightArmTargetWorld;
             lastSentActionSeq = rig.ActionSequence;
         }
+
+        lastSentHeldObjectType = GetHeldObjectType(localCube);
+        lastSentHeldItemType = GetHeldItemType(localCube);
+    }
+
+    private static string GetHeldObjectType(LocalCubeController player)
+    {
+        if (player == null)
+        {
+            return "none";
+        }
+
+        PlayerWeaponPickup weaponPickup = player.GetComponent<PlayerWeaponPickup>();
+        if (weaponPickup != null && weaponPickup.HasWeapon)
+        {
+            return "weapon";
+        }
+
+        PlayerItemPickup itemPickup = player.GetComponent<PlayerItemPickup>();
+        if (itemPickup != null && itemPickup.HasItem)
+        {
+            return "item";
+        }
+
+        return "none";
+    }
+
+    private static string GetHeldItemType(LocalCubeController player)
+    {
+        if (player == null)
+        {
+            return "";
+        }
+
+        PlayerWeaponPickup weaponPickup = player.GetComponent<PlayerWeaponPickup>();
+        if (weaponPickup != null && weaponPickup.HasWeapon)
+        {
+            return "spear";
+        }
+
+        PlayerItemPickup itemPickup = player.GetComponent<PlayerItemPickup>();
+        if (itemPickup != null && itemPickup.HasItem && itemPickup.HeldItem != null)
+        {
+            return itemPickup.HeldItem.ItemType.ToString();
+        }
+
+        return "";
     }
 
     private bool IsLocalMammothAuthority()
@@ -1846,7 +1924,12 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         lastSentEulerAngles = Vector3.zero;
         lastSentMoveTarget = Vector3.zero;
         lastSentAimTarget = Vector3.zero;
+        lastSentGaitForward = Vector3.zero;
+        lastSentLeftArmTarget = Vector3.zero;
+        lastSentRightArmTarget = Vector3.zero;
         lastSentActionSeq = 0;
+        lastSentHeldObjectType = "none";
+        lastSentHeldItemType = "";
         nextMammothStateSendTime = 0f;
         lastMammothStateSendTime = 0f;
         hasSentInitialMammothState = false;
@@ -3321,9 +3404,10 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 public sealed class LocalCubeController : MonoBehaviour
 {
     [SerializeField] private float moveSpeed = 6f;
-    [SerializeField] private float jumpForce = 5f;
+    [SerializeField] private float jumpForce = 3f;
     [SerializeField] private float aimRotationSpeed = 18f;
     [SerializeField] private float runTargetDistance = 3f;
+    [SerializeField] private float gaitTurnSpeedDegrees = 900f;
 
     [Header("Combat Setup")]
     [SerializeField] private Vector3 weaponHolderLocalPosition = new Vector3(0.24f, 0.16f, 0.3f);
@@ -3339,6 +3423,8 @@ public sealed class LocalCubeController : MonoBehaviour
     private Vector3 fallbackMoveDirection;
     private Vector3 latestAimPoint;
     private bool hasLatestAimPoint;
+    private Vector3 heldGaitForward = Vector3.forward;
+    private bool hasHeldGaitForward;
 
     public Vector3 Velocity { get; private set; }
     public ProceduralPlayerRig Rig => rig;
@@ -3359,6 +3445,15 @@ public sealed class LocalCubeController : MonoBehaviour
         }
 
         rig.Configure(true);
+        rig.ConfigureMovementSpeed(moveSpeed);
+
+        if (body != null && rig.HasLegController)
+        {
+            body.isKinematic = true;
+            body.useGravity = false;
+            body.freezeRotation = true;
+        }
+
         previousPosition = TrackedTransform.position;
         mouseAim = GetComponent<PlayerMouseAim>();
 
@@ -3368,6 +3463,7 @@ public sealed class LocalCubeController : MonoBehaviour
     private void Update()
     {
         UpdateProceduralTargets();
+        HandleProceduralJumpInput();
 
         if (cameraTransform != null)
         {
@@ -3389,7 +3485,11 @@ public sealed class LocalCubeController : MonoBehaviour
             return;
         }
 
-        if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame && isGrounded && !body.isKinematic)
+        if (keyboard != null &&
+            keyboard.spaceKey.wasPressedThisFrame &&
+            (rig == null || !rig.HasLegController) &&
+            isGrounded &&
+            !body.isKinematic)
         {
             body.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
             isGrounded = false;
@@ -3451,46 +3551,109 @@ public sealed class LocalCubeController : MonoBehaviour
             rig.SetAimTarget(latestAimPoint);
         }
 
-        Vector3 inputDirection = GetWasdDirection();
+        Vector2 inputAxes = GetWasdAxes();
         bool shiftHeld = mouseAim != null && mouseAim.IsAimModifierPressed;
         Vector3 corePosition = rig.CoreNode.position;
 
         fallbackMoveDirection = Vector3.zero;
 
+        if (!hasHeldGaitForward)
+        {
+            heldGaitForward = Vector3.ProjectOnPlane(rig.GaitForward, Vector3.up);
+            if (heldGaitForward.sqrMagnitude <= 0.001f)
+            {
+                heldGaitForward = Vector3.forward;
+            }
+
+            heldGaitForward.Normalize();
+            hasHeldGaitForward = true;
+        }
+
         if (shiftHeld && hasLatestAimPoint)
         {
-            rig.SetRunTarget(latestAimPoint);
-            fallbackMoveDirection = Vector3.ProjectOnPlane(latestAimPoint - corePosition, Vector3.up).normalized;
+            Vector3 toMouse = Vector3.ProjectOnPlane(latestAimPoint - corePosition, Vector3.up);
+            if (toMouse.sqrMagnitude > 0.04f)
+            {
+                heldGaitForward = Vector3.RotateTowards(
+                    heldGaitForward,
+                    toMouse.normalized,
+                    gaitTurnSpeedDegrees * Mathf.Deg2Rad * Time.deltaTime,
+                    0f
+                ).normalized;
+            }
         }
-        else if (inputDirection.sqrMagnitude > 0.001f)
+
+        Vector3 basisForward = Vector3.ProjectOnPlane(heldGaitForward, Vector3.up);
+        if (basisForward.sqrMagnitude <= 0.001f)
         {
-            Vector3 normalizedInput = inputDirection.normalized;
-            rig.SetRunTarget(corePosition + normalizedInput * runTargetDistance);
-            fallbackMoveDirection = normalizedInput;
+            basisForward = Vector3.forward;
         }
 
-        bool isHolding =
-            (GetComponent<PlayerWeaponPickup>()?.HasWeapon ?? false) ||
-            (GetComponent<PlayerItemPickup>()?.HasItem ?? false);
+        basisForward.Normalize();
+        rig.SetGaitForward(basisForward);
 
-        rig.ApplyHeldPose(isHolding);
+        if (inputAxes.sqrMagnitude > 0.001f)
+        {
+            Vector3 basisRight = Vector3.Cross(Vector3.up, basisForward).normalized;
+            Vector3 moveDirection = basisRight * inputAxes.x + basisForward * inputAxes.y;
+
+            if (moveDirection.sqrMagnitude > 0.001f)
+            {
+                moveDirection.Normalize();
+                rig.SetRunTarget(corePosition + moveDirection * runTargetDistance);
+                fallbackMoveDirection = moveDirection;
+            }
+            else
+            {
+                rig.SetRunTarget(corePosition);
+            }
+        }
+        else
+        {
+            rig.SetRunTarget(corePosition);
+        }
+
+        bool hasWeapon = GetComponent<PlayerWeaponPickup>()?.HasWeapon ?? false;
+        bool hasItem = GetComponent<PlayerItemPickup>()?.HasItem ?? false;
+
+        ProceduralPlayerRig.CarryPose carryPose = hasWeapon
+            ? ProceduralPlayerRig.CarryPose.OneHandWeapon
+            : hasItem
+                ? ProceduralPlayerRig.CarryPose.TwoHandItem
+                : ProceduralPlayerRig.CarryPose.None;
+
+        rig.ApplyCarryPose(carryPose);
         rig.UseLocalArmTargets();
     }
 
-    private static Vector3 GetWasdDirection()
+    private void HandleProceduralJumpInput()
+    {
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard == null || rig == null || !rig.HasLegController)
+        {
+            return;
+        }
+
+        if (keyboard.spaceKey.wasPressedThisFrame)
+        {
+            rig.RequestJump();
+        }
+    }
+
+    private static Vector2 GetWasdAxes()
     {
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null)
         {
-            return Vector3.zero;
+            return Vector2.zero;
         }
 
-        Vector3 direction = Vector3.zero;
-        if (keyboard.wKey.isPressed) direction += Vector3.forward;
-        if (keyboard.sKey.isPressed) direction += Vector3.back;
-        if (keyboard.dKey.isPressed) direction += Vector3.right;
-        if (keyboard.aKey.isPressed) direction += Vector3.left;
-        return direction;
+        Vector2 axes = Vector2.zero;
+        if (keyboard.wKey.isPressed) axes.y += 1f;
+        if (keyboard.sKey.isPressed) axes.y -= 1f;
+        if (keyboard.dKey.isPressed) axes.x += 1f;
+        if (keyboard.aKey.isPressed) axes.x -= 1f;
+        return axes.sqrMagnitude > 1f ? axes.normalized : axes;
     }
 
     private void SetupCombat()
@@ -3641,6 +3804,8 @@ public sealed class RemoteCubeController : MonoBehaviour
     private Vector3 targetPosition;
     private Quaternion targetRotation;
     private ProceduralPlayerRig rig;
+    private GameObject heldProp;
+    private string heldPropKey = "none";
 
     public ProceduralPlayerRig Rig => rig;
     public Transform TrackedTransform => rig != null ? rig.CoreNode : transform;
@@ -3671,8 +3836,18 @@ public sealed class RemoteCubeController : MonoBehaviour
             ? MultiplayerJson.ArrayToVector(state.aimTarget)
             : targetPosition + targetRotation * Vector3.forward;
 
+        Vector3 gaitForward = state.gaitForward != null && state.gaitForward.Length >= 3
+            ? MultiplayerJson.ArrayToVector(state.gaitForward)
+            : Vector3.ProjectOnPlane(aimTarget - targetPosition, Vector3.up);
+
         rig.SetRunTarget(moveTarget);
         rig.SetAimTarget(aimTarget);
+        if (gaitForward.sqrMagnitude > 0.001f)
+        {
+            rig.SetGaitForward(gaitForward.normalized);
+        }
+
+        rig.ApplyCarryPose(GetCarryPoseFromState(state));
 
         if (state.leftArmTarget != null && state.rightArmTarget != null)
         {
@@ -3681,6 +3856,28 @@ public sealed class RemoteCubeController : MonoBehaviour
                 MultiplayerJson.ArrayToVector(state.rightArmTarget)
             );
         }
+
+        UpdateHeldProp(state.heldObjectType, state.heldItemType);
+    }
+
+    private static ProceduralPlayerRig.CarryPose GetCarryPoseFromState(PlayerStateDto state)
+    {
+        if (state == null || string.IsNullOrWhiteSpace(state.heldObjectType))
+        {
+            return ProceduralPlayerRig.CarryPose.None;
+        }
+
+        if (string.Equals(state.heldObjectType, "weapon", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProceduralPlayerRig.CarryPose.OneHandWeapon;
+        }
+
+        if (string.Equals(state.heldObjectType, "item", StringComparison.OrdinalIgnoreCase))
+        {
+            return ProceduralPlayerRig.CarryPose.TwoHandItem;
+        }
+
+        return ProceduralPlayerRig.CarryPose.None;
     }
 
     private void Update()
@@ -3693,5 +3890,109 @@ public sealed class RemoteCubeController : MonoBehaviour
 
         transform.position = Vector3.Lerp(transform.position, targetPosition, Time.deltaTime * interpolationSpeed);
         transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, Time.deltaTime * interpolationSpeed);
+    }
+
+    private void UpdateHeldProp(string heldObjectType, string heldItemType)
+    {
+        heldObjectType = string.IsNullOrWhiteSpace(heldObjectType) ? "none" : heldObjectType;
+        heldItemType = string.IsNullOrWhiteSpace(heldItemType) ? "" : heldItemType;
+
+        string nextKey = heldObjectType + ":" + heldItemType;
+        if (string.Equals(nextKey, heldPropKey, StringComparison.Ordinal) && heldProp != null)
+        {
+            PlaceHeldProp(heldObjectType);
+            return;
+        }
+
+        if (heldProp != null)
+        {
+            Destroy(heldProp);
+            heldProp = null;
+        }
+
+        heldPropKey = nextKey;
+
+        if (string.Equals(heldObjectType, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        heldProp = CreateHeldProp(heldObjectType, heldItemType);
+        PlaceHeldProp(heldObjectType);
+    }
+
+    private GameObject CreateHeldProp(string heldObjectType, string heldItemType)
+    {
+        GameObject prop;
+
+        if (string.Equals(heldObjectType, "weapon", StringComparison.OrdinalIgnoreCase))
+        {
+            prop = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            prop.name = "Remote Spear Prop";
+            prop.transform.localScale = new Vector3(0.055f, 0.55f, 0.055f);
+            SetPropColor(prop, new Color(0.55f, 0.36f, 0.18f, 1f));
+        }
+        else if (string.Equals(heldItemType, "Rock", StringComparison.OrdinalIgnoreCase))
+        {
+            prop = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            prop.name = "Remote Rock Prop";
+            prop.transform.localScale = Vector3.one * 0.22f;
+            SetPropColor(prop, new Color(0.32f, 0.32f, 0.32f, 1f));
+        }
+        else
+        {
+            prop = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            prop.name = "Remote Item Prop";
+            prop.transform.localScale = new Vector3(0.055f, 0.28f, 0.055f);
+            SetPropColor(prop, new Color(0.48f, 0.3f, 0.13f, 1f));
+        }
+
+        Collider collider = prop.GetComponent<Collider>();
+        if (collider != null)
+        {
+            Destroy(collider);
+        }
+
+        return prop;
+    }
+
+    private void PlaceHeldProp(string heldObjectType)
+    {
+        if (heldProp == null || rig == null)
+        {
+            return;
+        }
+
+        Transform holder = string.Equals(heldObjectType, "weapon", StringComparison.OrdinalIgnoreCase)
+            ? rig.WeaponHolder
+            : rig.ItemHolder;
+
+        if (holder == null)
+        {
+            return;
+        }
+
+        heldProp.transform.SetParent(holder, false);
+        heldProp.transform.localPosition = Vector3.zero;
+        heldProp.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+    }
+
+    private static void SetPropColor(GameObject prop, Color color)
+    {
+        Renderer renderer = prop != null ? prop.GetComponent<Renderer>() : null;
+        if (renderer == null)
+        {
+            return;
+        }
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null)
+        {
+            shader = Shader.Find("Standard");
+        }
+
+        Material material = new Material(shader);
+        material.color = color;
+        renderer.material = material;
     }
 }

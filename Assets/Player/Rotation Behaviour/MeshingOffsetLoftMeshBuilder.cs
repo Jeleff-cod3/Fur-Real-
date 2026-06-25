@@ -75,6 +75,21 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
     [Tooltip("Safe default: false. Enable only after the mesh looks correct. This only runs in play mode, never in edit mode.")]
     public bool rebuildEveryFrameInPlayMode = false;
 
+    [Tooltip("When true, a ProceduralPlayerRig frame driver rebuilds this mesh explicitly after IK and offsets finish.")]
+    public bool managedByProceduralRig = false;
+
+    [Tooltip("In play mode, keep the previous valid mesh if one frame resolves no usable sections/triangles. This prevents renderer flicker when IK targets are between states.")]
+    public bool keepLastValidRuntimeMeshOnBuildFailure = true;
+
+    [Tooltip("Minimum seconds between runtime mesh rebuilds. Use 0 for every frame. This is ignored when a rebuild is forced.")]
+    [Min(0f)] public float minimumRuntimeRebuildInterval = 1f / 45f;
+
+    [Tooltip("Skips runtime rebuilds when the input nodes have not moved enough since the previous build.")]
+    public bool onlyRebuildWhenInputMoved = true;
+
+    [Tooltip("World-space movement needed before a runtime rebuild is considered dirty.")]
+    [Min(0f)] public float inputMoveEpsilon = 0.0025f;
+
     [Header("Loop Shape")]
     public LoopPlaneMode loopPlaneMode = LoopPlaneMode.OffsetXZ;
 
@@ -121,7 +136,7 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
 
     [Header("Debug")]
     public bool debugLogging = false;
-    public bool drawGizmos = true;
+    public bool drawGizmos = false;
     public Color sectionGizmoColor = new Color(0.1f, 0.8f, 1f, 0.9f);
     public Color bridgeGizmoColor = new Color(1f, 0.75f, 0.1f, 0.9f);
 
@@ -135,6 +150,12 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
     private readonly List<MeshingOffsetNode> tempNodes = new List<MeshingOffsetNode>();
 
     private Mesh generatedMesh;
+    private Mesh runtimeStagingMesh;
+    private readonly List<Vector3> lastInputNodePositions = new List<Vector3>();
+    private readonly List<Vector3> currentInputNodePositions = new List<Vector3>();
+    private bool hasLastInputNodePositions = false;
+    private float runtimeRebuildTimer = 999f;
+    private bool hasBuiltValidMesh = false;
 
     private class Section
     {
@@ -185,9 +206,14 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (managedByProceduralRig)
+        {
+            return;
+        }
+
         if (Application.isPlaying && rebuildEveryFrameInPlayMode)
         {
-            RebuildMesh();
+            RebuildMeshForRuntime(Time.deltaTime, false);
         }
     }
 
@@ -196,9 +222,103 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
     {
         EnsureReferences();
         ResolveOffsetNodes(tempNodes);
-        SortOffsetNodes(tempNodes);
-        BuildSections(tempNodes);
-        BuildMeshFromSections();
+        if (RebuildMeshFromResolvedNodes(tempNodes, false))
+        {
+            CaptureInputNodePositions(tempNodes);
+        }
+    }
+
+    public bool RebuildMeshForRuntime(float deltaTime, bool force)
+    {
+        EnsureReferences();
+        ResolveOffsetNodes(tempNodes);
+
+        runtimeRebuildTimer += Mathf.Max(0f, deltaTime);
+
+        if (!force)
+        {
+            if (minimumRuntimeRebuildInterval > 0f && runtimeRebuildTimer < minimumRuntimeRebuildInterval)
+            {
+                return false;
+            }
+
+            if (onlyRebuildWhenInputMoved && !HaveInputNodesMoved(tempNodes))
+            {
+                return false;
+            }
+        }
+
+        bool built = RebuildMeshFromResolvedNodes(tempNodes, true);
+        if (!built)
+        {
+            runtimeRebuildTimer = 0f;
+            return false;
+        }
+
+        CaptureInputNodePositions(tempNodes);
+        runtimeRebuildTimer = 0f;
+        return true;
+    }
+
+    private bool RebuildMeshFromResolvedNodes(List<MeshingOffsetNode> nodes, bool runtimeBuild)
+    {
+        SortOffsetNodes(nodes);
+        BuildSections(nodes);
+        return BuildMeshFromSections(runtimeBuild);
+    }
+
+    private bool HaveInputNodesMoved(List<MeshingOffsetNode> nodes)
+    {
+        CollectInputPointPositions(nodes, currentInputNodePositions);
+
+        if (!hasLastInputNodePositions || lastInputNodePositions.Count != currentInputNodePositions.Count)
+        {
+            return true;
+        }
+
+        float epsilonSqr = inputMoveEpsilon * inputMoveEpsilon;
+        for (int i = 0; i < currentInputNodePositions.Count; i++)
+        {
+            if ((currentInputNodePositions[i] - lastInputNodePositions[i]).sqrMagnitude > epsilonSqr)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void CaptureInputNodePositions(List<MeshingOffsetNode> nodes)
+    {
+        CollectInputPointPositions(nodes, currentInputNodePositions);
+        lastInputNodePositions.Clear();
+
+        for (int i = 0; i < currentInputNodePositions.Count; i++)
+        {
+            lastInputNodePositions.Add(currentInputNodePositions[i]);
+        }
+
+        hasLastInputNodePositions = true;
+    }
+
+    private static void CollectInputPointPositions(List<MeshingOffsetNode> nodes, List<Vector3> output)
+    {
+        output.Clear();
+
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            MeshingOffsetNode node = nodes[i];
+            if (node == null || node.Count <= 0)
+            {
+                output.Add(Vector3.zero);
+                continue;
+            }
+
+            for (int j = 0; j < node.Count; j++)
+            {
+                output.Add(node.GetWorldPosition(j));
+            }
+        }
     }
 
     [ContextMenu("Clear Generated Mesh")]
@@ -227,6 +347,11 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
         if (meshFilter == null)
         {
             meshFilter = GetComponent<MeshFilter>();
+        }
+
+        if (!hasBuiltValidMesh && meshFilter != null && meshFilter.sharedMesh != null)
+        {
+            hasBuiltValidMesh = true;
         }
     }
 
@@ -726,7 +851,7 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
         }
     }
 
-    private void BuildMeshFromSections()
+    private bool BuildMeshFromSections(bool runtimeBuild)
     {
         meshVertices.Clear();
         meshTriangles.Clear();
@@ -734,8 +859,11 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
 
         if (sections.Count == 0)
         {
-            ClearMesh();
-            return;
+            if (!ShouldKeepPreviousMeshOnRuntimeFailure(runtimeBuild))
+            {
+                ClearMesh();
+            }
+            return false;
         }
 
         for (int s = 0; s < sections.Count; s++)
@@ -808,8 +936,11 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
 
         if (meshTriangles.Count == 0)
         {
-            ClearMesh();
-            return;
+            if (!ShouldKeepPreviousMeshOnRuntimeFailure(runtimeBuild))
+            {
+                ClearMesh();
+            }
+            return false;
         }
 
         if (flipWinding)
@@ -822,7 +953,7 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
             AddBackFaces(meshTriangles);
         }
 
-        Mesh mesh = GetOrCreateMesh();
+        Mesh mesh = GetWritableMesh(runtimeBuild);
         mesh.Clear();
         mesh.name = "Meshing Offset Loft Mesh";
         mesh.indexFormat = meshVertices.Count > 65000 ? IndexFormat.UInt32 : IndexFormat.UInt16;
@@ -851,7 +982,7 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
             mesh.RecalculateBounds();
         }
 
-        meshFilter.sharedMesh = mesh;
+        CommitBuiltMesh(mesh, runtimeBuild);
 
         if (optionalMeshCollider != null)
         {
@@ -859,7 +990,48 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
             optionalMeshCollider.sharedMesh = mesh;
         }
 
+        hasBuiltValidMesh = true;
         Log("Built mesh: vertices=" + meshVertices.Count + ", triangles=" + (meshTriangles.Count / 3));
+        return true;
+    }
+
+    private Mesh GetWritableMesh(bool runtimeBuild)
+    {
+        if (!runtimeBuild || !keepLastValidRuntimeMeshOnBuildFailure || meshFilter == null || meshFilter.sharedMesh == null)
+        {
+            return GetOrCreateMesh();
+        }
+
+        if (runtimeStagingMesh == null)
+        {
+            runtimeStagingMesh = new Mesh();
+            runtimeStagingMesh.name = "Meshing Offset Loft Mesh";
+        }
+
+        return runtimeStagingMesh;
+    }
+
+    private void CommitBuiltMesh(Mesh mesh, bool runtimeBuild)
+    {
+        if (meshFilter == null || mesh == null)
+        {
+            return;
+        }
+
+        Mesh previouslyVisible = meshFilter.sharedMesh;
+        meshFilter.sharedMesh = mesh;
+
+        if (runtimeBuild && keepLastValidRuntimeMeshOnBuildFailure && previouslyVisible != null && previouslyVisible != mesh)
+        {
+            runtimeStagingMesh = previouslyVisible;
+        }
+
+        generatedMesh = mesh;
+    }
+
+    private bool ShouldKeepPreviousMeshOnRuntimeFailure(bool runtimeBuild)
+    {
+        return runtimeBuild && keepLastValidRuntimeMeshOnBuildFailure && hasBuiltValidMesh && meshFilter != null && meshFilter.sharedMesh != null;
     }
 
     private void AddBridge(Section a, Section b)

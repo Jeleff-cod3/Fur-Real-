@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-[DefaultExecutionOrder(260)]
+[DefaultExecutionOrder(150)]
 public class OffsetPositioningNode : MonoBehaviour
 {
     [Header("Debug")]
-    public bool debugLogging = true;
+    public bool debugLogging = false;
 
     [Serializable]
     public struct DynamicOffsetEntry
@@ -39,6 +39,9 @@ public class OffsetPositioningNode : MonoBehaviour
     [Tooltip("LateUpdate is safer because behavior scripts can write offsets during Update first.")]
     public bool applyInLateUpdate = true;
 
+    [Tooltip("When true, a ProceduralPlayerRig frame driver applies this node explicitly in a deterministic order, so this component will not auto-apply in Update/LateUpdate.")]
+    public bool managedByProceduralRig = false;
+
     public IReadOnlyList<DynamicOffsetEntry> DynamicOffsets => dynamicOffsets;
 
     private bool hasLoggedUpdate = false;
@@ -66,6 +69,11 @@ public class OffsetPositioningNode : MonoBehaviour
 
     private void Update()
     {
+        if (managedByProceduralRig)
+        {
+            return;
+        }
+
         if (!hasLoggedUpdate)
         {
             hasLoggedUpdate = true;
@@ -80,6 +88,11 @@ public class OffsetPositioningNode : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (managedByProceduralRig)
+        {
+            return;
+        }
+
         if (!hasLoggedLateUpdate)
         {
             hasLoggedLateUpdate = true;
@@ -120,7 +133,19 @@ public class OffsetPositioningNode : MonoBehaviour
 
     public Vector3 GetParentWorldPosition()
     {
-        return parentNode != null ? parentNode.position : Vector3.zero;
+        if (parentNode != null)
+        {
+            return parentNode.position;
+        }
+
+        // Missing parent references should never teleport an IK/helper node to world zero.
+        // Use the transform parent when available, otherwise hold the current world pose.
+        if (transform.parent != null)
+        {
+            return transform.parent.position;
+        }
+
+        return transform.position;
     }
 
     public Vector3 GetTotalDynamicOffset()

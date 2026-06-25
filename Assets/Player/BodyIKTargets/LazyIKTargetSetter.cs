@@ -66,6 +66,9 @@ public class LazyIKTargetSetter : MonoBehaviour
     public OffsetPositioningNode targetOffsetNode;
     public int targetDynamicOffsetId = 30;
 
+    [Tooltip("When writing through OffsetPositioningNode, apply immediately so the IK solver reads the same-frame target position.")]
+    public bool applyOffsetWritesImmediately = true;
+
     [Header("Reach")]
     public MaxReachSource maxReachSource = MaxReachSource.NodeStateChain;
 
@@ -738,6 +741,11 @@ public class LazyIKTargetSetter : MonoBehaviour
                 targetDynamicOffsetId,
                 worldPosition
             );
+
+            if (applyOffsetWritesImmediately)
+            {
+                targetOffsetNode.ApplyPosition();
+            }
 
             return;
         }

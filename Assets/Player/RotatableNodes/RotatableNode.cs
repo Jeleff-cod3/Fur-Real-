@@ -6,7 +6,7 @@ public class RotatableNode : MonoBehaviour
     private const float Epsilon = 0.000001f;
 
     [Header("Debug")]
-    public bool debugLogging = true;
+    public bool debugLogging = false;
 
     [Header("Current Node")]
     [Tooltip("The OffsetPositioningNode on this same object. This is what receives the rotation dynamic offset.")]
@@ -129,8 +129,11 @@ public class RotatableNode : MonoBehaviour
 
         Vector3 normal = GetSafePlaneNormal();
         Vector3 referenceDirection = GetReferenceDirection(normal);
-        Vector3 authoredStaticOffset = currentNode.GetAppliedStaticOffset();
-        Vector3 nodePlanarVector = Vector3.ProjectOnPlane(authoredStaticOffset, normal);
+        Vector3 authoredWorldOffset =
+            currentNode.GetWorldPositionWithoutDynamicOffset(rotationDynamicOffsetId)
+            - rotationCore.position;
+
+        Vector3 nodePlanarVector = Vector3.ProjectOnPlane(authoredWorldOffset, normal);
 
         if (nodePlanarVector.sqrMagnitude < Epsilon)
         {
@@ -148,11 +151,11 @@ public class RotatableNode : MonoBehaviour
             ? polePlanarVector.magnitude
             : nodePlanarVector.magnitude;
 
-        initialPlaneOffset = Vector3.Dot(authoredStaticOffset, normal);
+        initialPlaneOffset = Vector3.Dot(authoredWorldOffset, normal);
         initialPlanarOffsetFromCore = nodePlanarVector.normalized * initialRadius;
 
         initialized = true;
-        Log("InitializeFromCurrentPose", $"initialized=true, rotationCore={rotationCore.name}, authoredStaticOffset={authoredStaticOffset}, initialSignedAngleFromPole={initialSignedAngleFromPole}, initialRadius={initialRadius}, initialPlanarOffsetFromCore={initialPlanarOffsetFromCore}, initialPlaneOffset={initialPlaneOffset}, normal={normal}, referenceDirection={referenceDirection}");
+        Log("InitializeFromCurrentPose", $"initialized=true, rotationCore={rotationCore.name}, authoredWorldOffset={authoredWorldOffset}, initialSignedAngleFromPole={initialSignedAngleFromPole}, initialRadius={initialRadius}, initialPlanarOffsetFromCore={initialPlanarOffsetFromCore}, initialPlaneOffset={initialPlaneOffset}, normal={normal}, referenceDirection={referenceDirection}");
     }
 
     public void SetLocalRotationDegrees(float angleDegrees)
@@ -194,8 +197,13 @@ public class RotatableNode : MonoBehaviour
     {
         if (!initialized)
         {
-            LogWarning("ApplyRotationOffset", "skipped because the node has not been initialized yet.");
-            return;
+            InitializeFromCurrentPose();
+
+            if (!initialized)
+            {
+                LogWarning("ApplyRotationOffset", "skipped because the node has not been initialized yet.");
+                return;
+            }
         }
 
         Transform rotationCore = ResolveRotationCore();
@@ -222,27 +230,41 @@ public class RotatableNode : MonoBehaviour
 
     public Vector3 CalculateRotationDynamicOffset()
     {
-        Vector3 staticOffset = currentNode != null ? currentNode.GetAppliedStaticOffset() : Vector3.zero;
-        return CalculateRotationDynamicOffsetForStaticOffset(staticOffset);
+        return CalculateRotationDynamicOffsetForStaticOffset(
+            currentNode != null ? currentNode.GetAppliedStaticOffset() : Vector3.zero
+        );
     }
 
     public Vector3 CalculateRotationDynamicOffsetForStaticOffset(Vector3 staticOffset)
     {
+        Transform rotationCore = ResolveRotationCore();
+        if (currentNode == null || rotationCore == null)
+        {
+            return Vector3.zero;
+        }
+
         Vector3 normal = GetSafePlaneNormal();
-        Vector3 staticPlanarOffset = Vector3.ProjectOnPlane(staticOffset, normal);
+        Vector3 staticPlanarOffset = initialPlanarOffsetFromCore;
 
         if (staticPlanarOffset.sqrMagnitude < Epsilon)
         {
-            LogWarning("CalculateRotationDynamicOffsetForStaticOffset", $"static offset has no usable planar X/Z component: staticOffset={staticOffset}, normal={normal}");
+            LogWarning("CalculateRotationDynamicOffsetForStaticOffset", $"initial offset has no usable planar component: staticOffset={staticOffset}, normal={normal}");
             return Vector3.zero;
         }
 
         float clampedLocalRotation = ClampLocalRotation(localRotationDegrees);
         Quaternion rotation = Quaternion.AngleAxis(clampedLocalRotation, normal);
         Vector3 rotatedPlanarOffset = rotation * staticPlanarOffset;
-        Vector3 dynamicOffset = rotatedPlanarOffset - staticPlanarOffset;
+        Vector3 desiredWorldPosition =
+            rotationCore.position +
+            rotatedPlanarOffset +
+            normal * initialPlaneOffset;
+        Vector3 dynamicOffset = currentNode.CalculateDynamicOffsetForDesiredWorldPosition(
+            rotationDynamicOffsetId,
+            desiredWorldPosition
+        );
 
-        Log("CalculateRotationDynamicOffsetForStaticOffset", $"staticOffset={staticOffset}, staticPlanarOffset={staticPlanarOffset}, clampedLocalRotation={clampedLocalRotation}, rotatedPlanarOffset={rotatedPlanarOffset}, dynamicOffset={dynamicOffset}");
+        Log("CalculateRotationDynamicOffsetForStaticOffset", $"staticOffset={staticOffset}, initialPlanarOffset={staticPlanarOffset}, clampedLocalRotation={clampedLocalRotation}, desiredWorldPosition={desiredWorldPosition}, dynamicOffset={dynamicOffset}");
         return dynamicOffset;
     }
 
@@ -259,13 +281,10 @@ public class RotatableNode : MonoBehaviour
 
         float clampedLocalRotation = ClampLocalRotation(localRotationDegrees);
         Quaternion rotation = Quaternion.AngleAxis(clampedLocalRotation, normal);
-        Vector3 staticOffset = currentNode != null ? currentNode.GetAppliedStaticOffset() : Vector3.zero;
-        Vector3 staticPlanarOffset = Vector3.ProjectOnPlane(staticOffset, normal);
-        Vector3 staticPlaneOffset = staticOffset - staticPlanarOffset;
-        Vector3 rotatedPlanarVector = rotation * staticPlanarOffset;
+        Vector3 rotatedPlanarVector = rotation * initialPlanarOffsetFromCore;
 
-        Vector3 result = rotationCore.position + rotatedPlanarVector + staticPlaneOffset;
-        Log("CalculateRotatedWorldPosition", $"rotationCore={rotationCore.name}, staticOffset={staticOffset}, clampedLocalRotation={clampedLocalRotation}, rotatedPlanarVector={rotatedPlanarVector}, result={result}, normal={normal}");
+        Vector3 result = rotationCore.position + rotatedPlanarVector + normal * initialPlaneOffset;
+        Log("CalculateRotatedWorldPosition", $"rotationCore={rotationCore.name}, clampedLocalRotation={clampedLocalRotation}, rotatedPlanarVector={rotatedPlanarVector}, result={result}, normal={normal}");
         return result;
     }
 

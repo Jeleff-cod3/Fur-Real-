@@ -32,7 +32,7 @@ public class RotatableNodePair : MonoBehaviour
     public bool reinitializeNodesOnStart = true;
 
     [Header("Debug")]
-    public bool debugLogging = true;
+    public bool debugLogging = false;
 
     private bool hasLoggedAwake = false;
     private bool hasLoggedStart = false;
@@ -85,6 +85,11 @@ public class RotatableNodePair : MonoBehaviour
         Log("SetPairRotationDegrees", $"angleDegrees={angleDegrees}");
         PushSharedSettingsToNodes(false);
 
+        if (nodes == null)
+        {
+            return;
+        }
+
         for (int i = 0; i < nodes.Length; i++)
         {
             if (nodes[i] == null)
@@ -101,6 +106,11 @@ public class RotatableNodePair : MonoBehaviour
     {
         Vector3 planeNormal = GetPlaneNormal();
         Log("PushSharedSettingsToNodes", $"reinitialize={reinitialize}, planeNormal={planeNormal}, coreNode={(coreNode != null ? coreNode.name : "null")}, poleVector={(poleVector != null ? poleVector.name : "null")}, directionTransform={(directionTransform != null ? directionTransform.name : "null")}");
+
+        if (nodes == null)
+        {
+            return;
+        }
 
         for (int i = 0; i < nodes.Length; i++)
         {

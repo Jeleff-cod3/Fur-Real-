@@ -144,8 +144,11 @@ public sealed class PlayerStateDto
     public float[] velocity;
     public float[] moveTarget;
     public float[] aimTarget;
+    public float[] gaitForward;
     public float[] leftArmTarget;
     public float[] rightArmTarget;
+    public string heldObjectType = "none";
+    public string heldItemType = "";
     public string animationState = "idle";
     public string actionState = "idle";
     public int actionSeq;
@@ -178,6 +181,24 @@ public sealed class PlayerStateDto
         Vector3 velocity = rig != null ? rig.Velocity : Vector3.zero;
         Transform runTarget = rig != null ? rig.RunTarget : null;
         Transform aimTarget = rig != null ? rig.AimTarget : null;
+        PlayerWeaponPickup weaponPickup = rig != null ? rig.GetComponent<PlayerWeaponPickup>() : null;
+        PlayerItemPickup itemPickup = rig != null ? rig.GetComponent<PlayerItemPickup>() : null;
+
+        string heldObjectType = "none";
+        string heldItemType = "";
+
+        if (weaponPickup != null && weaponPickup.HasWeapon)
+        {
+            heldObjectType = "weapon";
+            heldItemType = "spear";
+        }
+        else if (itemPickup != null && itemPickup.HasItem)
+        {
+            heldObjectType = "item";
+            heldItemType = itemPickup.HeldItem != null
+                ? itemPickup.HeldItem.ItemType.ToString()
+                : "";
+        }
 
         return new PlayerStateDto
         {
@@ -191,8 +212,11 @@ public sealed class PlayerStateDto
             velocity = MultiplayerJson.VectorToArray(velocity),
             moveTarget = MultiplayerJson.VectorToArray(runTarget != null ? runTarget.position : position),
             aimTarget = MultiplayerJson.VectorToArray(aimTarget != null ? aimTarget.position : position + Vector3.forward),
+            gaitForward = MultiplayerJson.VectorToArray(rig != null ? rig.GaitForward : Vector3.forward),
             leftArmTarget = MultiplayerJson.VectorToArray(rig != null ? rig.LeftArmTargetWorld : position),
             rightArmTarget = MultiplayerJson.VectorToArray(rig != null ? rig.RightArmTargetWorld : position),
+            heldObjectType = heldObjectType,
+            heldItemType = heldItemType,
             animationState = velocity.sqrMagnitude > 0.01f ? "run" : "idle",
             actionState = rig != null ? rig.ActionState : "idle",
             actionSeq = rig != null ? rig.ActionSequence : 0,

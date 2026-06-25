@@ -20,6 +20,7 @@ public class PlayerItemPickup : MonoBehaviour
     private Transform itemHolder;
     private SphereCollider pickupTrigger;
     private PlayerCarryController carryController;
+    private ProceduralPlayerRig proceduralRig;
     private PickupableItem heldItem;
 
     public PickupableItem HeldItem => heldItem;
@@ -59,6 +60,15 @@ public class PlayerItemPickup : MonoBehaviour
 
             DropHeldItem();
             return;
+        }
+
+        if (nearbyItems.Count == 0)
+        {
+            PickupableItem overlappingItem = FindClosestOverlappingItem();
+            if (overlappingItem != null)
+            {
+                nearbyItems.Add(overlappingItem);
+            }
         }
 
         PickupableItem closestItem = GetClosestNearbyItem();
@@ -181,6 +191,41 @@ public class PlayerItemPickup : MonoBehaviour
         }
     }
 
+    private PickupableItem FindClosestOverlappingItem()
+    {
+        Collider[] overlaps = Physics.OverlapSphere(
+            transform.position,
+            pickupRangeRadius,
+            Physics.DefaultRaycastLayers,
+            QueryTriggerInteraction.Collide);
+
+        PickupableItem closest = null;
+        float closestDistanceSqr = float.MaxValue;
+
+        for (int i = 0; i < overlaps.Length; i++)
+        {
+            PickupableItem item = overlaps[i] != null
+                ? overlaps[i].GetComponentInParent<PickupableItem>()
+                : null;
+
+            if (item == null || !item.CanBePickedUpFromWorld)
+            {
+                continue;
+            }
+
+            float distanceSqr = (item.transform.position - transform.position).sqrMagnitude;
+            if (distanceSqr >= closestDistanceSqr)
+            {
+                continue;
+            }
+
+            closest = item;
+            closestDistanceSqr = distanceSqr;
+        }
+
+        return closest;
+    }
+
     private void EnsureSetup()
     {
         if (carryController == null)
@@ -192,9 +237,16 @@ public class PlayerItemPickup : MonoBehaviour
             }
         }
 
+        if (proceduralRig == null)
+        {
+            proceduralRig = GetComponent<ProceduralPlayerRig>();
+        }
+
         if (itemHolder == null)
         {
-            itemHolder = FindOrCreateChild(itemHolderName, itemHolderLocalPosition);
+            itemHolder = proceduralRig != null && proceduralRig.ItemHolder != null
+                ? proceduralRig.ItemHolder
+                : FindOrCreateChild(itemHolderName, itemHolderLocalPosition);
         }
 
         EnsurePickupTrigger();
