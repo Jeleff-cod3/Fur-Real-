@@ -19,16 +19,23 @@ class LobbySerializer(serializers.ModelSerializer):
     hostId = serializers.IntegerField(source="host_id", read_only=True)
     isStarted = serializers.BooleanField(source="is_started", read_only=True)
     maxPlayers = serializers.IntegerField(source="max_players", read_only=True)
+    mapSeed = serializers.IntegerField(source="map_seed", read_only=True)
     members = LobbyMemberSerializer(many=True, read_only=True)
 
     class Meta:
         model = Lobby
-        fields = ["id", "code", "hostId", "maxPlayers", "isStarted", "created_at", "members"]
+        fields = ["id", "code", "hostId", "maxPlayers", "mapSeed", "isStarted", "created_at", "members"]
 
 
 class CreateLobbySerializer(serializers.Serializer):
     maxPlayers = serializers.IntegerField(min_value=1, max_value=16, required=False, default=4)
+    mapSeed = serializers.IntegerField(required=False)
 
 
 class ReadySerializer(serializers.Serializer):
     isReady = serializers.BooleanField(required=False, default=True)
+
+
+class UpdateLobbySettingsSerializer(serializers.Serializer):
+    mapSeed = serializers.IntegerField(required=False)
+    randomizeSeed = serializers.BooleanField(required=False, default=False)

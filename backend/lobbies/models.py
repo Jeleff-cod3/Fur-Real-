@@ -10,6 +10,7 @@ class Lobby(models.Model):
         related_name="hosted_lobbies",
     )
     max_players = models.PositiveSmallIntegerField(default=4)
+    map_seed = models.IntegerField(default=12345)
     is_started = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -44,3 +45,25 @@ class LobbyMember(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user} in {self.lobby}"
+
+
+class LobbyDeparture(models.Model):
+    lobby = models.ForeignKey(
+        Lobby,
+        on_delete=models.CASCADE,
+        related_name="departures",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="lobby_departures",
+    )
+    left_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [
+            ("lobby", "user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user} left {self.lobby}"

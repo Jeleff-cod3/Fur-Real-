@@ -31,9 +31,9 @@ public sealed class CaveGameApiClient
         yield return Post("/api/accounts/guest/", "{}", false, onComplete);
     }
 
-    public IEnumerator CreateLobby(int maxPlayers, Action<ApiResult<LobbyDto>> onComplete)
+    public IEnumerator CreateLobby(int maxPlayers, int mapSeed, Action<ApiResult<LobbyDto>> onComplete)
     {
-        string body = JsonUtility.ToJson(new CreateLobbyRequestDto { maxPlayers = maxPlayers });
+        string body = JsonUtility.ToJson(new CreateLobbyRequestDto { maxPlayers = maxPlayers, mapSeed = mapSeed });
         yield return Post("/api/lobbies/create/", body, true, onComplete);
     }
 
@@ -53,6 +53,21 @@ public sealed class CaveGameApiClient
     {
         string body = JsonUtility.ToJson(new StartLobbyRequestDto());
         yield return Post($"/api/lobbies/{lobbyId}/start/", body, true, onComplete);
+    }
+
+    public IEnumerator UpdateLobbySettings(int lobbyId, int mapSeed, bool randomizeSeed, Action<ApiResult<LobbySnapshotDto>> onComplete)
+    {
+        string body = JsonUtility.ToJson(new UpdateLobbySettingsRequestDto
+        {
+            mapSeed = mapSeed,
+            randomizeSeed = randomizeSeed,
+        });
+        yield return Post($"/api/lobbies/{lobbyId}/settings/", body, true, onComplete);
+    }
+
+    public IEnumerator LeaveLobby(int lobbyId, Action<ApiResult<OperationStatusDto>> onComplete)
+    {
+        yield return Post($"/api/lobbies/{lobbyId}/leave/", "{}", true, onComplete);
     }
 
     public IEnumerator GetLobby(int lobbyId, Action<ApiResult<LobbyDto>> onComplete)

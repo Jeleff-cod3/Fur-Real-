@@ -1,5 +1,6 @@
 GAME_STARTED = "game_started"
 HEARTBEAT = "heartbeat"
+LOBBY_CLOSED = "lobby_closed"
 LOBBY_SNAPSHOT = "lobby_snapshot"
 MAMMOTH_HEALTH = "mammoth_health"
 MAMMOTH_STATE = "mammoth_state"

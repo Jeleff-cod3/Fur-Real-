@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.AI.Navigation;
 using UnityEngine.AI;
 
 [RequireComponent(typeof(NavMeshAgent))]
@@ -35,6 +36,17 @@ public class MammothMovement : MonoBehaviour
     [Header("NavMesh Recovery")]
     [SerializeField] private float navMeshRecoveryRadius = 80f;
     [SerializeField] private float destinationSampleRadius = 10f;
+
+    [Header("Path Safety")]
+    [SerializeField] private float maxPathLengthMultiplier = 1.45f;
+    [SerializeField] private int maxChargePathCorners = 3;
+    [SerializeField] [Range(-1f, 1f)] private float minimumChargeForwardDot = 0.45f;
+
+    [Header("Obstacle Clearance")]
+    [SerializeField] private LayerMask obstacleClearanceMask = ~0;
+    [SerializeField] private float obstacleClearanceRadius = 1.7f;
+    [SerializeField] private float obstacleProbeHeight = 1.2f;
+    [SerializeField] private float obstacleProbeSpacing = 1.15f;
 
     private NavMeshAgent agent;
     private MammothState state;
@@ -125,11 +137,11 @@ public class MammothMovement : MonoBehaviour
         agent.velocity = Vector3.zero;
     }
 
-    public void Chase(Transform target)
+    public bool Chase(Transform target)
     {
         if (target == null || !IsAgentReady())
         {
-            return;
+            return false;
         }
 
         lookAroundAtDestination = false;
@@ -137,19 +149,17 @@ public class MammothMovement : MonoBehaviour
 
         if (!TryResolveTerritoryDestination(target.position, true, out Vector3 targetPosition))
         {
-            return;
+            return false;
         }
 
-        agent.speed = chaseSpeed;
-        agent.isStopped = false;
-        agent.SetDestination(targetPosition);
+        return TrySetDestination(targetPosition, chaseSpeed, false);
     }
 
-    public void RunAwayFrom(Transform threat)
+    public bool RunAwayFrom(Transform threat)
     {
         if (threat == null || !IsAgentReady())
         {
-            return;
+            return false;
         }
 
         Vector3 awayDirection = transform.position - threat.position;
@@ -166,17 +176,17 @@ public class MammothMovement : MonoBehaviour
 
         if (TryResolveTerritoryDestination(desiredPosition, true, out Vector3 navPosition))
         {
-            agent.speed = runAwaySpeed;
-            agent.isStopped = false;
-            agent.SetDestination(navPosition);
+            return TrySetDestination(navPosition, runAwaySpeed, false);
         }
+
+        return false;
     }
 
-    public void Roam()
+    public bool Roam()
     {
         if (!IsAgentReady())
         {
-            return;
+            return false;
         }
 
         lookAroundAtDestination = false;
@@ -184,36 +194,34 @@ public class MammothMovement : MonoBehaviour
 
         if (TryFindRoamDestination(out Vector3 navPosition))
         {
-            agent.speed = roamSpeed;
-            agent.isStopped = false;
-            agent.SetDestination(navPosition);
+            return TrySetDestination(navPosition, roamSpeed, false);
         }
+
+        return false;
     }
 
-    public void Investigate(Vector3 lastKnownPosition)
+    public bool Investigate(Vector3 lastKnownPosition)
     {
         if (!IsAgentReady())
         {
-            return;
+            return false;
         }
 
         if (!TryResolveTerritoryDestination(lastKnownPosition, true, out Vector3 navPosition))
         {
-            return;
+            return false;
         }
 
         lookAroundAtDestination = true;
         forcedFacingTarget = null;
-        agent.speed = investigateSpeed;
-        agent.isStopped = false;
-        agent.SetDestination(navPosition);
+        return TrySetDestination(navPosition, investigateSpeed, false);
     }
 
-    public void ChargeToward(Transform target)
+    public bool ChargeToward(Transform target)
     {
         if (target == null || !IsAgentReady())
         {
-            return;
+            return false;
         }
 
         Vector3 direction = target.position - transform.position;
@@ -230,10 +238,37 @@ public class MammothMovement : MonoBehaviour
 
         if (TryResolveTerritoryDestination(chargeTarget, true, out Vector3 navPosition))
         {
-            agent.speed = chargeSpeed;
-            agent.isStopped = false;
-            agent.SetDestination(navPosition);
+            return TrySetDestination(navPosition, chargeSpeed, true);
         }
+
+        return false;
+    }
+
+    public bool CanReachTarget(Transform target)
+    {
+        return target != null &&
+            TryResolveTerritoryDestination(target.position, true, out Vector3 navPosition) &&
+            IsPathSafeTo(navPosition, false);
+    }
+
+    public bool HasSafeChargePath(Transform target)
+    {
+        if (target == null)
+        {
+            return false;
+        }
+
+        Vector3 direction = target.position - transform.position;
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude <= 0.001f)
+        {
+            return false;
+        }
+
+        Vector3 chargeTarget = transform.position + direction.normalized * chargeDistance;
+        return TryResolveTerritoryDestination(chargeTarget, true, out Vector3 navPosition) &&
+            IsPathSafeTo(navPosition, true);
     }
 
     public void FaceTarget(Transform target)
@@ -473,6 +508,217 @@ public class MammothMovement : MonoBehaviour
             out navPosition,
             destinationSampleRadius,
             80);
+    }
+
+    private bool TrySetDestination(Vector3 destination, float speed, bool requireChargePath)
+    {
+        if (!TryBuildSafePath(destination, requireChargePath, out NavMeshPath safePath))
+        {
+            return false;
+        }
+
+        agent.speed = speed;
+        agent.isStopped = false;
+        return agent.SetPath(safePath);
+    }
+
+    private bool IsPathSafeTo(Vector3 destination, bool requireChargePath)
+    {
+        return TryBuildSafePath(destination, requireChargePath, out _);
+    }
+
+    private bool TryBuildSafePath(Vector3 destination, bool requireChargePath, out NavMeshPath path)
+    {
+        path = new NavMeshPath();
+
+        if (!IsAgentReady())
+        {
+            return false;
+        }
+
+        if (!agent.CalculatePath(destination, path))
+        {
+            return false;
+        }
+
+        if (path.status != NavMeshPathStatus.PathComplete || path.corners == null || path.corners.Length == 0)
+        {
+            return false;
+        }
+
+        float directDistance = Vector3.Distance(transform.position, destination);
+        float pathLength = GetPathLength(path);
+        float minimumReasonableDistance = Mathf.Max(1f, directDistance);
+
+        if (pathLength > minimumReasonableDistance * maxPathLengthMultiplier)
+        {
+            return false;
+        }
+
+        if (!HasClearanceFromWorldObstacles(path))
+        {
+            return false;
+        }
+
+        if (!requireChargePath)
+        {
+            return true;
+        }
+
+        if (path.corners.Length > maxChargePathCorners)
+        {
+            return false;
+        }
+
+        Vector3 overallDirection = destination - transform.position;
+        overallDirection.y = 0f;
+
+        if (overallDirection.sqrMagnitude <= 0.001f)
+        {
+            return false;
+        }
+
+        Vector3 firstSegment = path.corners.Length > 1
+            ? path.corners[1] - path.corners[0]
+            : overallDirection;
+        firstSegment.y = 0f;
+
+        if (firstSegment.sqrMagnitude <= 0.001f)
+        {
+            return false;
+        }
+
+        return Vector3.Dot(firstSegment.normalized, overallDirection.normalized) >= minimumChargeForwardDot;
+    }
+
+    private bool HasClearanceFromWorldObstacles(NavMeshPath path)
+    {
+        if (path == null || path.corners == null || path.corners.Length == 0)
+        {
+            return false;
+        }
+
+        int mask = ResolveObstacleClearanceMask();
+
+        for (int i = 0; i < path.corners.Length; i++)
+        {
+            if (WouldClipWorldObstacle(path.corners[i], mask))
+            {
+                return false;
+            }
+
+            if (i == 0)
+            {
+                continue;
+            }
+
+            Vector3 start = path.corners[i - 1];
+            Vector3 end = path.corners[i];
+            Vector3 segment = end - start;
+            float distance = segment.magnitude;
+
+            if (distance <= 0.001f)
+            {
+                continue;
+            }
+
+            int sampleCount = Mathf.Max(1, Mathf.CeilToInt(distance / Mathf.Max(0.2f, obstacleProbeSpacing)));
+            for (int sampleIndex = 1; sampleIndex < sampleCount; sampleIndex++)
+            {
+                Vector3 samplePoint = Vector3.Lerp(start, end, sampleIndex / (float)sampleCount);
+                if (WouldClipWorldObstacle(samplePoint, mask))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private bool WouldClipWorldObstacle(Vector3 worldPosition, int mask)
+    {
+        Vector3 probeCenter = worldPosition + Vector3.up * obstacleProbeHeight;
+        Collider[] overlaps = Physics.OverlapSphere(
+            probeCenter,
+            obstacleClearanceRadius,
+            mask,
+            QueryTriggerInteraction.Ignore
+        );
+
+        foreach (Collider overlap in overlaps)
+        {
+            if (overlap == null)
+            {
+                continue;
+            }
+
+            if (overlap.transform == transform || overlap.transform.IsChildOf(transform))
+            {
+                continue;
+            }
+
+            if (!IsWorldObstacleCollider(overlap))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsWorldObstacleCollider(Collider collider)
+    {
+        if (collider == null)
+        {
+            return false;
+        }
+
+        if (collider.GetComponentInParent<NavMeshModifier>() != null)
+        {
+            return true;
+        }
+
+        string objectName = collider.gameObject.name;
+        return objectName.Contains("Trees") ||
+            objectName.Contains("Dead Trees") ||
+            objectName.Contains("Rocks") ||
+            objectName.Contains("ResourceForestTrees");
+    }
+
+    private int ResolveObstacleClearanceMask()
+    {
+        if (obstacleClearanceMask.value != 0)
+        {
+            return obstacleClearanceMask.value;
+        }
+
+        int defaultLayer = LayerMask.NameToLayer("Default");
+        if (defaultLayer >= 0)
+        {
+            return 1 << defaultLayer;
+        }
+
+        return Physics.DefaultRaycastLayers;
+    }
+
+    private static float GetPathLength(NavMeshPath path)
+    {
+        if (path == null || path.corners == null || path.corners.Length < 2)
+        {
+            return 0f;
+        }
+
+        float total = 0f;
+
+        for (int i = 1; i < path.corners.Length; i++)
+        {
+            total += Vector3.Distance(path.corners[i - 1], path.corners[i]);
+        }
+
+        return total;
     }
 
     private bool TryFindNavMeshPosition(Vector3 position, float radius, out Vector3 navPosition)

@@ -46,33 +46,74 @@ public class MammothActionController : MonoBehaviour
                     return;
                 }
 
-                movement.Roam();
-                state?.SetAction(MammothActionType.Roam);
+                if (movement.Roam())
+                {
+                    state?.SetAction(MammothActionType.Roam);
+                }
                 break;
 
             case MammothActionType.Investigate:
+            {
                 if (state != null && state.currentAction == MammothActionType.Investigate)
                 {
                     return;
                 }
 
-                movement.Investigate(state != null ? state.lastKnownTargetPosition : transform.position);
-                state?.SetAction(MammothActionType.Investigate);
+                Vector3 investigationPosition = state != null
+                    ? state.GetBestInvestigationPosition()
+                    : transform.position;
+
+                if (movement.Investigate(investigationPosition))
+                {
+                    state?.SetAction(MammothActionType.Investigate);
+                }
+                else
+                {
+                    movement.Stop();
+                    state?.SetAction(MammothActionType.Idle);
+                }
+                break;
+            }
+
+            case MammothActionType.Threaten:
+                movement.Stop();
+                movement.FaceTarget(target);
+                combat?.StartThreatDisplay(target);
                 break;
 
             case MammothActionType.ChasePlayer:
-                movement.Chase(target);
-                state?.SetAction(MammothActionType.ChasePlayer);
+                if (movement.Chase(target))
+                {
+                    state?.SetAction(MammothActionType.ChasePlayer);
+                }
+                else if (movement.Investigate(state != null ? state.GetBestInvestigationPosition() : transform.position))
+                {
+                    state?.SetAction(MammothActionType.Investigate);
+                }
                 break;
 
             case MammothActionType.RunAway:
-                movement.RunAwayFrom(target);
-                state?.SetAction(MammothActionType.RunAway);
+                if (movement.RunAwayFrom(target))
+                {
+                    state?.SetAction(MammothActionType.RunAway);
+                }
+                else if (movement.Roam())
+                {
+                    state?.SetAction(MammothActionType.Roam);
+                }
                 break;
 
             case MammothActionType.Charge:
-                movement.ChargeToward(target);
-                combat?.StartChargeDamageWindow(target);
+                if (movement.ChargeToward(target))
+                {
+                    combat?.StartChargeDamageWindow(target);
+                }
+                else
+                {
+                    movement.Stop();
+                    movement.FaceTarget(target);
+                    combat?.StartThreatDisplay(target);
+                }
                 break;
 
             case MammothActionType.NormalAttack:
