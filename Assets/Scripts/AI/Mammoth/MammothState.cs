@@ -26,6 +26,8 @@ public class MammothState : MonoBehaviour
     public float lastThreatenTime;
     public int repeatedThreatHitCount;
     public bool hasDamageSource;
+    public int embeddedSpearCount;
+    public float lastEmbeddedSpearTime;
 
     public void SetAction(MammothActionType newAction)
     {
@@ -180,6 +182,29 @@ public class MammothState : MonoBehaviour
     public bool HasThreatenedRecently(float cooldown)
     {
         return lastThreatenTime > 0f && Time.time - lastThreatenTime <= cooldown;
+    }
+
+    public bool HasEmbeddedSpears => embeddedSpearCount > 0;
+
+    public void NotifyEmbeddedSpearAttached()
+    {
+        embeddedSpearCount++;
+        lastEmbeddedSpearTime = Time.time;
+    }
+
+    public void NotifyEmbeddedSpearRemoved()
+    {
+        embeddedSpearCount = Mathf.Max(0, embeddedSpearCount - 1);
+    }
+
+    public float TimeSinceLastEmbeddedSpear()
+    {
+        if (lastEmbeddedSpearTime <= 0f)
+        {
+            return Mathf.Infinity;
+        }
+
+        return Time.time - lastEmbeddedSpearTime;
     }
 
     public float TimeSinceLastTargetSeen()

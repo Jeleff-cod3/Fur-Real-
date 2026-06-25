@@ -1,4 +1,5 @@
 using UnityEngine;
+using Unity.AI.Navigation;
 using UnityEngine.AI;
 
 [RequireComponent(typeof(NavMeshAgent))]
@@ -40,6 +41,12 @@ public class MammothMovement : MonoBehaviour
     [SerializeField] private float maxPathLengthMultiplier = 1.45f;
     [SerializeField] private int maxChargePathCorners = 3;
     [SerializeField] [Range(-1f, 1f)] private float minimumChargeForwardDot = 0.45f;
+
+    [Header("Obstacle Clearance")]
+    [SerializeField] private LayerMask obstacleClearanceMask = ~0;
+    [SerializeField] private float obstacleClearanceRadius = 1.7f;
+    [SerializeField] private float obstacleProbeHeight = 1.2f;
+    [SerializeField] private float obstacleProbeSpacing = 1.15f;
 
     private NavMeshAgent agent;
     private MammothState state;
@@ -548,6 +555,11 @@ public class MammothMovement : MonoBehaviour
             return false;
         }
 
+        if (!HasClearanceFromWorldObstacles(path))
+        {
+            return false;
+        }
+
         if (!requireChargePath)
         {
             return true;
@@ -577,6 +589,119 @@ public class MammothMovement : MonoBehaviour
         }
 
         return Vector3.Dot(firstSegment.normalized, overallDirection.normalized) >= minimumChargeForwardDot;
+    }
+
+    private bool HasClearanceFromWorldObstacles(NavMeshPath path)
+    {
+        if (path == null || path.corners == null || path.corners.Length == 0)
+        {
+            return false;
+        }
+
+        int mask = ResolveObstacleClearanceMask();
+
+        for (int i = 0; i < path.corners.Length; i++)
+        {
+            if (WouldClipWorldObstacle(path.corners[i], mask))
+            {
+                return false;
+            }
+
+            if (i == 0)
+            {
+                continue;
+            }
+
+            Vector3 start = path.corners[i - 1];
+            Vector3 end = path.corners[i];
+            Vector3 segment = end - start;
+            float distance = segment.magnitude;
+
+            if (distance <= 0.001f)
+            {
+                continue;
+            }
+
+            int sampleCount = Mathf.Max(1, Mathf.CeilToInt(distance / Mathf.Max(0.2f, obstacleProbeSpacing)));
+            for (int sampleIndex = 1; sampleIndex < sampleCount; sampleIndex++)
+            {
+                Vector3 samplePoint = Vector3.Lerp(start, end, sampleIndex / (float)sampleCount);
+                if (WouldClipWorldObstacle(samplePoint, mask))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private bool WouldClipWorldObstacle(Vector3 worldPosition, int mask)
+    {
+        Vector3 probeCenter = worldPosition + Vector3.up * obstacleProbeHeight;
+        Collider[] overlaps = Physics.OverlapSphere(
+            probeCenter,
+            obstacleClearanceRadius,
+            mask,
+            QueryTriggerInteraction.Ignore
+        );
+
+        foreach (Collider overlap in overlaps)
+        {
+            if (overlap == null)
+            {
+                continue;
+            }
+
+            if (overlap.transform == transform || overlap.transform.IsChildOf(transform))
+            {
+                continue;
+            }
+
+            if (!IsWorldObstacleCollider(overlap))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsWorldObstacleCollider(Collider collider)
+    {
+        if (collider == null)
+        {
+            return false;
+        }
+
+        if (collider.GetComponentInParent<NavMeshModifier>() != null)
+        {
+            return true;
+        }
+
+        string objectName = collider.gameObject.name;
+        return objectName.Contains("Trees") ||
+            objectName.Contains("Dead Trees") ||
+            objectName.Contains("Rocks") ||
+            objectName.Contains("ResourceForestTrees");
+    }
+
+    private int ResolveObstacleClearanceMask()
+    {
+        if (obstacleClearanceMask.value != 0)
+        {
+            return obstacleClearanceMask.value;
+        }
+
+        int defaultLayer = LayerMask.NameToLayer("Default");
+        if (defaultLayer >= 0)
+        {
+            return 1 << defaultLayer;
+        }
+
+        return Physics.DefaultRaycastLayers;
     }
 
     private static float GetPathLength(NavMeshPath path)

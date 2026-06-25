@@ -26,12 +26,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private const float ReconnectBaseDelay = 0.35f;
     private const float ReconnectMaxDelay = 6f;
     private const float HudRefreshInterval = 0.25f;
+    private const float GameHudVisibleDuration = 120f;
     private const float SpawnHeightOffset = 0.75f;
     private const float SpawnNavMeshProbeHeight = 40f;
     private const float SpawnNavMeshSampleRadius = 80f;
     private const float SpawnRaycastHeight = 200f;
     private const float SpawnRaycastDistance = 600f;
-    private const string LobbyMusicResourcePath = "music/FurReal-SpearMeDaddy";
+    private const string LobbyMusicResourcePath = "music/SpearMeDaddy";
     private const float LobbyMusicVolume = 0.38f;
     private const float InGameMusicVolume = 0.07f;
     private const float MusicFadeSpeed = 0.8f;
@@ -42,6 +43,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     public static MultiplayerPrototype Instance { get; private set; }
 
     private static readonly Vector2 MenuPanelSize = new Vector2(680f, 760f);
+    private static readonly Vector2 LobbyPanelSize = new Vector2(640f, 620f);
+    private static readonly Vector2 LobbyPanelOffset = new Vector2(0f, -56f);
     private static readonly Color Ink = new Color(0.12f, 0.08f, 0.04f, 0.98f);
     private static readonly Color Panel = new Color(0.88f, 0.82f, 0.7f, 0.96f);
     private static readonly Color PanelSoft = new Color(0.95f, 0.91f, 0.8f, 0.96f);
@@ -82,6 +85,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private GameObject menuBackdrop;
     private GameObject menuWordmarkRoot;
     private GameObject loginPanel;
+    private GameObject mainMenuPanel;
     private GameObject findPanel;
     private GameObject lobbyPanel;
     private GameObject gameHudPanel;
@@ -98,6 +102,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private Text loadingProgressText;
     private Image loadingProgressFill;
     private Text loginStatusText;
+    private Text mainMenuStatusText;
     private Text findStatusText;
     private Text lobbyTitleText;
     private Text lobbyCodeText;
@@ -109,8 +114,13 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private Button startButton;
     private Button copyCodeButton;
     private Button leaveLobbyButton;
+    private Button randomSeedButton;
+    private Button applySeedButton;
     private Image readyButtonImage;
     private Image startButtonImage;
+    private Image randomSeedButtonImage;
+    private Image applySeedButtonImage;
+    private InputField lobbySeedInput;
     private readonly List<LobbySlotView> lobbySlotViews = new List<LobbySlotView>();
 
     private GameObject worldRoot;
@@ -135,6 +145,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     private bool worldBootstrapReady;
     private bool worldBootstrapFailed;
     private float lastLoadingUiRefreshTime;
+    private bool isEnteringGame;
+    private bool leaveRequestInFlight;
+    private float gameHudHideAt = -1f;
 
     [Header("Networking Debug")]
     [SerializeField] private bool verboseNetworkingLogs = true;
@@ -241,6 +254,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             DumpMultiplayerDebugSnapshot();
         }
 
+        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame && (gameStarted || currentLobby != null))
+        {
+            RequestLeaveCurrentSession();
+        }
+
         if (!gameStarted && lobbySocket != null && lobbySocket.IsOpen && Time.unscaledTime >= nextLobbyPingTime)
         {
             nextLobbyPingTime = Time.unscaledTime + LobbyPingInterval;
@@ -316,6 +334,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             nextHudRefreshTime = Time.unscaledTime + HudRefreshInterval;
             RefreshGameHud();
         }
+
+        if (gameHudPanel.activeSelf && gameHudHideAt > 0f && Time.unscaledTime >= gameHudHideAt)
+        {
+            gameHudPanel.SetActive(false);
+        }
     }
 
     private void OnDestroy()
@@ -352,7 +375,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             authToken = result.Value.token;
             currentUser = result.Value.user;
             string preferredName = string.IsNullOrWhiteSpace(usernameInput.text) ? currentUser.username : usernameInput.text.Trim();
-            ShowFind($"Authenticated as {preferredName} ({currentUser.username}). Backend currently issued a guest token.");
+            ShowMainMenu($"Authenticated as {preferredName} ({currentUser.username}). Press Play to host or join.");
         }));
     }
 
@@ -364,7 +387,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         SetText(findStatusText, "Creating lobby...");
-        StartCoroutine(api.CreateLobby(4, result =>
+        int initialSeed = GenerateRandomLobbySeed();
+        StartCoroutine(api.CreateLobby(4, initialSeed, result =>
         {
             if (!result.IsSuccess)
             {
@@ -429,6 +453,56 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }));
     }
 
+    private void RandomizeLobbySeed()
+    {
+        if (!IsLocalHost() || currentLobby == null)
+        {
+            SetText(lobbyStatusText, "Only the host can randomize the map seed.");
+            return;
+        }
+
+        SetText(lobbyStatusText, "Rolling a fresh seed...");
+        StartCoroutine(api.UpdateLobbySettings(currentLobby.id, 0, true, result =>
+        {
+            if (!result.IsSuccess)
+            {
+                SetText(lobbyStatusText, result.Error);
+                return;
+            }
+
+            ApplyLobbySnapshot(result.Value);
+            SetText(lobbyStatusText, $"Seed randomized to {currentLobby.mapSeed}.");
+        }));
+    }
+
+    private void ApplyLobbySeed()
+    {
+        if (!IsLocalHost() || currentLobby == null)
+        {
+            SetText(lobbyStatusText, "Only the host can change the map seed.");
+            return;
+        }
+
+        if (lobbySeedInput == null || !int.TryParse(lobbySeedInput.text, out int parsedSeed))
+        {
+            SetText(lobbyStatusText, "Enter a whole-number seed first.");
+            return;
+        }
+
+        SetText(lobbyStatusText, "Applying seed...");
+        StartCoroutine(api.UpdateLobbySettings(currentLobby.id, parsedSeed, false, result =>
+        {
+            if (!result.IsSuccess)
+            {
+                SetText(lobbyStatusText, result.Error);
+                return;
+            }
+
+            ApplyLobbySnapshot(result.Value);
+            SetText(lobbyStatusText, $"Seed locked to {currentLobby.mapSeed}.");
+        }));
+    }
+
     private void StartLobby()
     {
         SetText(lobbyStatusText, "Starting lobby...");
@@ -458,14 +532,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private void LeaveLobby()
     {
-        suppressLobbyReconnect = true;
-        MarkExpectedLobbyClose("leave_lobby");
-        lobbySocket?.Close();
-        lobbySocket = null;
-        currentLobby = null;
-        localMember = null;
-        playerSlotsById.Clear();
-        ShowFind("Left lobby. Create a new room or jump into another code.");
+        RequestLeaveCurrentSession();
     }
 
     private void OpenLobbySocket()
@@ -622,6 +689,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             case "lobby_snapshot":
                 ApplyLobbySnapshot(JsonUtility.FromJson<LobbySnapshotDto>(json));
                 break;
+            case "lobby_closed":
+                HandleLobbyClosed(JsonUtility.FromJson<LobbyClosedDto>(json));
+                break;
             case "player_ready_changed":
                 ApplyLobbyEvent(JsonUtility.FromJson<LobbyEventDto>(json));
                 break;
@@ -637,6 +707,11 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
     private IEnumerator RefreshLobby(string status)
     {
+        if (currentLobby == null)
+        {
+            yield break;
+        }
+
         yield return api.GetLobby(currentLobby.id, result =>
         {
             if (result.IsSuccess)
@@ -660,6 +735,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
             id = snapshot.lobbyId,
             code = snapshot.code,
             hostId = snapshot.hostId,
+            mapSeed = snapshot.mapSeed,
+            maxPlayers = currentLobby != null && currentLobby.maxPlayers > 0 ? currentLobby.maxPlayers : DefaultMaxPlayers,
             isStarted = snapshot.isStarted,
             members = snapshot.players,
         };
@@ -691,27 +768,67 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         RefreshLobbyUi(null);
     }
 
-    private void EnterGame(GameStartedDto start)
+    private void HandleLobbyClosed(LobbyClosedDto closed)
     {
-        if (gameStarted)
+        if (closed == null)
         {
             return;
         }
 
+        int activeLobbyId = currentLobby != null ? currentLobby.id : currentGameLobbyId;
+        if (activeLobbyId > 0 && closed.lobbyId > 0 && closed.lobbyId != activeLobbyId)
+        {
+            return;
+        }
+
+        string message = string.IsNullOrWhiteSpace(closed.message)
+            ? "The host left, so the lobby closed."
+            : closed.message;
+        ReturnToFrontEndState(message, false);
+    }
+
+    private void EnterGame(GameStartedDto start)
+    {
+        if (gameStarted || isEnteringGame)
+        {
+            return;
+        }
+
+        StartCoroutine(EnterGameRoutine(start));
+    }
+
+    private IEnumerator EnterGameRoutine(GameStartedDto start)
+    {
+        int startLobbyId = start != null ? start.lobbyId : -1;
+        int startSeed = start != null ? start.mapSeed : (worldChunkRenderer != null ? worldChunkRenderer.WorldSeed : 0);
+        isEnteringGame = true;
         gameStarted = true;
         ResetStateSendTracking();
         EnsureLocalMemberForGameStart(start);
         CacheGameStartedPlayerSlots(start);
-        currentGameLobbyId = start != null ? start.lobbyId : -1;
+        currentGameLobbyId = startLobbyId;
         gameReconnectQueued = false;
         suppressLobbyReconnect = true;
         MarkExpectedLobbyClose("transition_to_game");
         lobbySocket?.Close();
+        ShowLoading($"Preparing map seed {startSeed}...");
+
+        if (worldChunkRenderer == null)
+        {
+            worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
+        }
+
+        if (worldChunkRenderer != null && worldChunkRenderer.WorldSeed != startSeed)
+        {
+            yield return worldChunkRenderer.RebuildWorldWithSeed(startSeed, false);
+        }
+
         HideAllPanels();
         SetMenuChromeVisible(false);
         SetMusicTargetVolume(InGameMusicVolume);
         gameHudPanel.SetActive(true);
-        SetText(gameStatusText, $"Game started in lobby {start.lobbyId}. WASD to move, Space to jump.");
+        gameHudHideAt = Time.unscaledTime + GameHudVisibleDuration;
+        SetText(gameStatusText, $"Game started in lobby {startLobbyId} on seed {startSeed}. Press Esc to leave.");
         NetLog("Entering game. " + DescribeGameStarted(start));
 
         BuildGameWorld();
@@ -719,6 +836,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         TryApplyMammothHealth(pendingMammothHealth);
         PreSpawnRemotePlayers(start);
         OpenGameSocket(currentGameLobbyId);
+        isEnteringGame = false;
     }
 
     private void EnsureLocalMemberForGameStart(GameStartedDto start)
@@ -770,12 +888,15 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         worldChunkRenderer = FindAnyObjectByType<WorldChunkRenderer>();
         runtimeSpawnAnchor = ResolveRuntimeSpawnAnchor();
 
-        GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        floor.name = "Prototype Floor";
-        floor.transform.SetParent(worldRoot.transform);
-        floor.transform.position = new Vector3(0f, -0.55f, 0f);
-        floor.transform.localScale = new Vector3(32f, 1f, 32f);
-        SetRendererColor(floor, new Color(0.22f, 0.5f, 0.24f));
+        if (worldChunkRenderer == null)
+        {
+            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            floor.name = "Prototype Floor";
+            floor.transform.SetParent(worldRoot.transform);
+            floor.transform.position = new Vector3(0f, -0.55f, 0f);
+            floor.transform.localScale = new Vector3(32f, 1f, 32f);
+            SetRendererColor(floor, new Color(0.22f, 0.5f, 0.24f));
+        }
 
         if (FindAnyObjectByType<Light>() == null)
         {
@@ -1032,6 +1153,9 @@ public sealed class MultiplayerPrototype : MonoBehaviour
                 break;
             case "heartbeat":
                 lastGameHeartbeatReceiveTime = Time.unscaledTime;
+                break;
+            case "lobby_closed":
+                HandleLobbyClosed(JsonUtility.FromJson<LobbyClosedDto>(json));
                 break;
             case "player_left":
                 LobbyEventDto left = JsonUtility.FromJson<LobbyEventDto>(json);
@@ -1886,7 +2010,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         }
 
         StringBuilder sb = new StringBuilder(128);
-        sb.Append("game_started players=");
+        sb.Append("game_started seed=").Append(start.mapSeed).Append(" players=");
         for (int i = 0; i < start.players.Length; i++)
         {
             GameStartedPlayerDto p = start.players[i];
@@ -2048,21 +2172,41 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         AddButton(loginPanel.transform, "Connect To Wallow", Login, Accent);
         loginStatusText = AddText(loginPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 56f);
 
+        mainMenuPanel = CreatePanel("Main Menu Panel");
+        AddKicker(mainMenuPanel.transform, "MAIN MENU");
+        AddTitle(mainMenuPanel.transform, "Gather The Party");
+        AddText(mainMenuPanel.transform, "Start a seeded multiplayer run, host your own cave, or join a friend by code.", 18, MutedText, TextAnchor.MiddleLeft, 72f);
+        AddButton(mainMenuPanel.transform, "Play", OpenPlayMenu, Accent);
+        mainMenuStatusText = AddText(mainMenuPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 56f);
+
         findPanel = CreatePanel("Find Games Panel");
-        AddKicker(findPanel.transform, "MULTIPLAYER");
-        AddTitle(findPanel.transform, "Lobby Control");
-        AddText(findPanel.transform, "Host a four-player cave run or enter a friend code to join their lobby.", 18, MutedText, TextAnchor.MiddleLeft, 64f);
-        AddButton(findPanel.transform, "Create New Lobby", CreateLobby, Accent);
+        AddKicker(findPanel.transform, "PLAY");
+        AddTitle(findPanel.transform, "Choose Your Run");
+        AddText(findPanel.transform, "Create a hosted lobby with a fresh random map seed, or enter a code to join another hunt.", 18, MutedText, TextAnchor.MiddleLeft, 72f);
+        AddButton(findPanel.transform, "Host New Lobby", CreateLobby, Accent);
         joinCodeInput = AddInput(findPanel.transform, "Lobby Code", "", false);
         AddButton(findPanel.transform, "Join By Code", JoinLobby, AccentCool);
+        AddButton(findPanel.transform, "Back To Menu", OpenMainMenu, new Color(0.36f, 0.29f, 0.22f, 0.98f));
         findStatusText = AddText(findPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 56f);
 
         lobbyPanel = CreatePanel("Lobby Panel");
-        AddKicker(lobbyPanel.transform, "WALLOW PARTY");
+        RectTransform lobbyRect = lobbyPanel.GetComponent<RectTransform>();
+        lobbyRect.sizeDelta = LobbyPanelSize;
+        lobbyRect.anchoredPosition = LobbyPanelOffset;
+        VerticalLayoutGroup lobbyLayout = lobbyPanel.GetComponent<VerticalLayoutGroup>();
+        lobbyLayout.padding = new RectOffset(34, 34, 22, 22);
+        lobbyLayout.spacing = 8f;
+
+        Text lobbyKickerText = AddKicker(lobbyPanel.transform, "WALLOW PARTY");
         lobbyTitleText = AddTitle(lobbyPanel.transform, "Lobby");
         lobbyCodeText = AddText(lobbyPanel.transform, "", 30, Accent, TextAnchor.MiddleLeft, 46f);
         lobbyHostText = AddText(lobbyPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 48f);
         lobbyPlayersText = AddText(lobbyPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 36f);
+        SetPreferredHeight(lobbyKickerText, 24f);
+        SetPreferredHeight(lobbyTitleText, 48f);
+        SetPreferredHeight(lobbyCodeText, 38f);
+        SetPreferredHeight(lobbyHostText, 30f);
+        SetPreferredHeight(lobbyPlayersText, 28f);
 
         GameObject slotGrid = new GameObject("Player Slot Grid");
         slotGrid.transform.SetParent(lobbyPanel.transform, false);
@@ -2072,29 +2216,38 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         slotLayout.childForceExpandHeight = false;
         slotLayout.childControlWidth = true;
         slotLayout.childForceExpandWidth = true;
-        slotGrid.AddComponent<LayoutElement>().preferredHeight = 264f;
+        slotGrid.AddComponent<LayoutElement>().preferredHeight = 188f;
         for (int slot = 0; slot < DefaultMaxPlayers; slot++)
         {
             lobbySlotViews.Add(CreateLobbySlot(slotGrid.transform, slot));
         }
 
-        GameObject actionRow = AddRow(lobbyPanel.transform, "Lobby Actions", 52f);
+        GameObject actionRow = AddRow(lobbyPanel.transform, "Lobby Actions", 46f);
         readyButton = AddButton(actionRow.transform, "Ready Up", ToggleReady, Success);
         readyButtonImage = readyButton.targetGraphic as Image;
         startButton = AddButton(actionRow.transform, "Start Run", StartLobby, Accent);
         startButtonImage = startButton.targetGraphic as Image;
 
-        GameObject utilityRow = AddRow(lobbyPanel.transform, "Lobby Utility", 44f);
+        GameObject utilityRow = AddRow(lobbyPanel.transform, "Lobby Utility", 40f);
         copyCodeButton = AddButton(utilityRow.transform, "Copy Code", CopyLobbyCode, AccentCool);
         leaveLobbyButton = AddButton(utilityRow.transform, "Leave", LeaveLobby, new Color(0.82f, 0.23f, 0.25f));
-        lobbyStatusText = AddText(lobbyPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 56f);
+
+        GameObject seedRow = AddRow(lobbyPanel.transform, "Seed Row", 48f);
+        lobbySeedInput = AddInput(seedRow.transform, "Map Seed", "", false);
+        randomSeedButton = AddButton(seedRow.transform, "New Seed", RandomizeLobbySeed, AccentCool);
+        randomSeedButtonImage = randomSeedButton.targetGraphic as Image;
+
+        GameObject seedApplyRow = AddRow(lobbyPanel.transform, "Seed Apply Row", 40f);
+        applySeedButton = AddButton(seedApplyRow.transform, "Apply Seed", ApplyLobbySeed, Accent);
+        applySeedButtonImage = applySeedButton.targetGraphic as Image;
+        lobbyStatusText = AddText(lobbyPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 40f);
 
         gameHudPanel = CreatePanel("Game HUD", false);
-        gameHudPanel.GetComponent<RectTransform>().anchorMin = new Vector2(0f, 1f);
-        gameHudPanel.GetComponent<RectTransform>().anchorMax = new Vector2(0f, 1f);
-        gameHudPanel.GetComponent<RectTransform>().pivot = new Vector2(0f, 1f);
-        gameHudPanel.GetComponent<RectTransform>().anchoredPosition = new Vector2(20f, -20f);
-        gameHudPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(620f, 168f);
+        gameHudPanel.GetComponent<RectTransform>().anchorMin = new Vector2(1f, 1f);
+        gameHudPanel.GetComponent<RectTransform>().anchorMax = new Vector2(1f, 1f);
+        gameHudPanel.GetComponent<RectTransform>().pivot = new Vector2(1f, 1f);
+        gameHudPanel.GetComponent<RectTransform>().anchoredPosition = new Vector2(-20f, -20f);
+        gameHudPanel.GetComponent<RectTransform>().sizeDelta = new Vector2(500f, 150f);
         AddKicker(gameHudPanel.transform, "LIVE RUN");
         gameStatusText = AddText(gameHudPanel.transform, "", 16, MutedText, TextAnchor.MiddleLeft, 78f);
     }
@@ -2380,6 +2533,25 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         SetText(loginStatusText, status);
     }
 
+    private void OpenMainMenu()
+    {
+        ShowMainMenu("Ready to host a fresh seed or join a lobby code.");
+    }
+
+    private void ShowMainMenu(string status)
+    {
+        HideAllPanels();
+        SetMenuChromeVisible(true);
+        SetMusicTargetVolume(LobbyMusicVolume);
+        mainMenuPanel.SetActive(true);
+        SetText(mainMenuStatusText, status);
+    }
+
+    private void OpenPlayMenu()
+    {
+        ShowFind("Create a lobby for a new seeded run or enter a code to join one.");
+    }
+
     private void ShowFind(string status)
     {
         HideAllPanels();
@@ -2423,8 +2595,8 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         SetText(lobbyTitleText, "Lobby " + currentLobby.id);
         SetText(lobbyCodeText, $"CODE {currentLobby.code}");
         SetText(lobbyHostText, isHost
-            ? "You are the host. Launch unlocks when every joined player is ready."
-            : "Waiting for the host to launch once the party is ready.");
+            ? $"You are the host. Seed {currentLobby.mapSeed} will be used when the run begins."
+            : $"Waiting for the host to launch seed {currentLobby.mapSeed} once the party is ready.");
         SetText(lobbyPlayersText, $"{readyCount}/{Mathf.Max(memberCount, 1)} ready - {memberCount}/{LobbyCapacity(currentLobby)} players in cave party");
 
         if (localMember != null)
@@ -2438,6 +2610,29 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         SetButtonVisual(startButton, startButtonImage, startButton.interactable ? Accent : PanelSoft);
         copyCodeButton.interactable = !string.IsNullOrWhiteSpace(currentLobby.code);
         leaveLobbyButton.interactable = true;
+        SetButtonText(leaveLobbyButton, isHost ? "Close Lobby" : (gameStarted ? "Leave Run" : "Leave"));
+
+        if (lobbySeedInput != null && !lobbySeedInput.isFocused)
+        {
+            lobbySeedInput.text = currentLobby.mapSeed.ToString();
+        }
+
+        if (randomSeedButton != null)
+        {
+            randomSeedButton.interactable = isHost && !currentLobby.isStarted;
+            SetButtonVisual(randomSeedButton, randomSeedButtonImage, randomSeedButton.interactable ? AccentCool : PanelSoft);
+        }
+
+        if (applySeedButton != null)
+        {
+            applySeedButton.interactable = isHost && !currentLobby.isStarted;
+            SetButtonVisual(applySeedButton, applySeedButtonImage, applySeedButton.interactable ? Accent : PanelSoft);
+        }
+
+        if (lobbySeedInput != null)
+        {
+            lobbySeedInput.interactable = isHost && !currentLobby.isStarted;
+        }
 
         for (int i = 0; i < lobbySlotViews.Count; i++)
         {
@@ -2448,6 +2643,110 @@ public sealed class MultiplayerPrototype : MonoBehaviour
         if (!string.IsNullOrWhiteSpace(status))
         {
             SetText(lobbyStatusText, status);
+        }
+    }
+
+    private bool IsLocalHost()
+    {
+        return currentLobby != null && currentUser != null && currentLobby.hostId == currentUser.id;
+    }
+
+    private int GenerateRandomLobbySeed()
+    {
+        return UnityEngine.Random.Range(1000, 100000000);
+    }
+
+    private void RequestLeaveCurrentSession()
+    {
+        if (leaveRequestInFlight || isEnteringGame)
+        {
+            return;
+        }
+
+        int lobbyId = currentLobby != null ? currentLobby.id : currentGameLobbyId;
+        if (lobbyId <= 0)
+        {
+            ReturnToFrontEndState("Returned to the multiplayer menu.", false);
+            return;
+        }
+
+        leaveRequestInFlight = true;
+        string leavingMessage = IsLocalHost()
+            ? "Closing lobby for everyone..."
+            : (gameStarted ? "Leaving run..." : "Leaving lobby...");
+        SetText(gameStarted ? gameStatusText : lobbyStatusText, leavingMessage);
+
+        StartCoroutine(api.LeaveLobby(lobbyId, result =>
+        {
+            leaveRequestInFlight = false;
+
+            if (!result.IsSuccess)
+            {
+                SetText(gameStarted ? gameStatusText : lobbyStatusText, result.Error);
+                return;
+            }
+
+            if (!gameStarted && currentLobby == null && currentGameLobbyId <= 0)
+            {
+                return;
+            }
+
+            string message = IsLocalHost()
+                ? "Host left. Lobby closed."
+                : (gameStarted ? "You left the run." : "You left the lobby.");
+            ReturnToFrontEndState(message, false);
+        }));
+    }
+
+    private void ReturnToFrontEndState(string status, bool showLobbyPanel)
+    {
+        leaveRequestInFlight = false;
+        isEnteringGame = false;
+        suppressLobbyReconnect = true;
+        gameReconnectQueued = false;
+        lobbyReconnectQueued = false;
+        currentGameLobbyId = -1;
+        gameStarted = false;
+        gameHudHideAt = -1f;
+        pendingMammothState = null;
+        pendingMammothHealth = null;
+        cachedMammothEnemy = null;
+        mammothRuntimeConfigured = false;
+        hasRemoteMammothPose = false;
+        targetRemoteMammothPosition = Vector3.zero;
+        targetRemoteMammothRotation = Quaternion.identity;
+
+        MarkExpectedLobbyClose("return_to_frontend");
+        MarkExpectedGameClose("return_to_frontend");
+        lobbySocket?.Close();
+        gameSocket?.Close();
+        lobbySocket = null;
+        gameSocket = null;
+
+        DetachWorldChunkRendererPlayers();
+
+        if (worldRoot != null)
+        {
+            Destroy(worldRoot);
+            worldRoot = null;
+        }
+
+        remoteCubes.Clear();
+        localCube = null;
+        currentLobby = null;
+        localMember = null;
+        playerSlotsById.Clear();
+        ResetStateSendTracking();
+        SetMenuChromeVisible(true);
+        SetMusicTargetVolume(LobbyMusicVolume);
+
+        if (showLobbyPanel)
+        {
+            ShowLobby(status);
+        }
+        else
+        {
+            ShowFind(status);
         }
     }
 
@@ -2498,6 +2797,7 @@ public sealed class MultiplayerPrototype : MonoBehaviour
     {
         loadingPanel.SetActive(false);
         loginPanel.SetActive(false);
+        mainMenuPanel.SetActive(false);
         findPanel.SetActive(false);
         lobbyPanel.SetActive(false);
         gameHudPanel.SetActive(false);
@@ -3098,6 +3398,20 @@ public sealed class MultiplayerPrototype : MonoBehaviour
 
         cachedUiFont = Resources.GetBuiltinResource<Font>(BuiltInFontName);
         return cachedUiFont;
+    }
+
+    private static void SetPreferredHeight(Component component, float preferredHeight)
+    {
+        if (component == null)
+        {
+            return;
+        }
+
+        LayoutElement layout = component.GetComponent<LayoutElement>();
+        if (layout != null)
+        {
+            layout.preferredHeight = preferredHeight;
+        }
     }
 
     private static Material CreateRuntimeMaterial(Color color)

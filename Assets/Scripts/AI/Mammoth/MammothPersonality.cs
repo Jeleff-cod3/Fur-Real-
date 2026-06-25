@@ -27,6 +27,10 @@ public class MammothPersonality : MonoBehaviour
     [SerializeField] private float painSettleRate = 0.025f;
     [SerializeField] private float fatigueRecoveryRate = 0.08f;
     [SerializeField] private float fatigueBuildRate = 0.16f;
+    [SerializeField] private float aggressionTriggerThreshold = 0.68f;
+    [SerializeField] private float fearTriggerThreshold = 0.68f;
+    [SerializeField] private float triggerDominanceMargin = 0.06f;
+    [SerializeField] private float embeddedSpearStressPerSecond = 0.065f;
 
     private MammothState state;
 
@@ -50,6 +54,24 @@ public class MammothPersonality : MonoBehaviour
         fear = Mathf.MoveTowards(fear, calmFear, fearSettleRate * Time.deltaTime);
         alertness = Mathf.MoveTowards(alertness, calmAlertness, alertnessSettleRate * Time.deltaTime);
         pain = Mathf.MoveTowards(pain, 0f, painSettleRate * Time.deltaTime);
+
+        if (state != null && state.HasEmbeddedSpears)
+        {
+            float embeddedStress = embeddedSpearStressPerSecond * Time.deltaTime * Mathf.Clamp(state.embeddedSpearCount, 1, 3);
+            AddPain(embeddedStress * 0.7f);
+            AddAlertness(embeddedStress * 0.55f);
+
+            if (aggression + bravery >= fearfulness + fear)
+            {
+                AddAnger(embeddedStress * Mathf.Lerp(0.7f, 1.35f, aggression));
+                AddFear(embeddedStress * Mathf.Lerp(0.18f, 0.52f, fearfulness));
+            }
+            else
+            {
+                AddFear(embeddedStress * Mathf.Lerp(0.7f, 1.35f, fearfulness));
+                AddAnger(embeddedStress * Mathf.Lerp(0.18f, 0.5f, aggression));
+            }
+        }
 
         float fatigueDeltaPerSecond = GetFatigueDeltaForCurrentAction();
         float fatigueStep = (fatigueDeltaPerSecond >= 0f ? fatigueBuildRate : fatigueRecoveryRate) * Time.deltaTime;
@@ -107,6 +129,93 @@ public class MammothPersonality : MonoBehaviour
     public void AddFatigue(float amount)
     {
         fatigue = Mathf.Clamp01(fatigue + amount);
+    }
+
+    public float AngerMeter => anger;
+    public float FearMeter => fear;
+
+    public bool IsAggressionTriggered =>
+        anger >= aggressionTriggerThreshold &&
+        anger + triggerDominanceMargin >= fear;
+
+    public bool IsFearTriggered =>
+        fear >= fearTriggerThreshold &&
+        fear >= anger + triggerDominanceMargin;
+
+    public void RegisterThreatEvent(
+        float normalizedDamage,
+        bool canSeeThreat,
+        bool closeThreat,
+        bool repeatedThreat,
+        bool hasEmbeddedSpears)
+    {
+        float angerBias =
+            0.26f +
+            aggression * 0.42f +
+            bravery * 0.24f -
+            fearfulness * 0.12f;
+        float fearBias =
+            0.24f +
+            fearfulness * 0.46f +
+            (1f - bravery) * 0.18f -
+            aggression * 0.08f;
+
+        if (canSeeThreat)
+        {
+            angerBias += 0.18f;
+        }
+        else
+        {
+            fearBias += 0.2f;
+        }
+
+        if (closeThreat)
+        {
+            angerBias += 0.16f;
+        }
+        else
+        {
+            fearBias += 0.08f;
+        }
+
+        if (repeatedThreat)
+        {
+            angerBias += 0.08f;
+            fearBias += 0.12f;
+        }
+
+        if (hasEmbeddedSpears)
+        {
+            angerBias += 0.06f;
+            fearBias += 0.1f;
+        }
+
+        float totalBias = Mathf.Max(0.001f, angerBias + fearBias);
+        float angerShare = angerBias / totalBias;
+        float fearShare = fearBias / totalBias;
+        float resolvedDamage = Mathf.Clamp01(normalizedDamage);
+
+        AddAnger(Mathf.Lerp(0.08f, 0.28f, resolvedDamage) * angerShare);
+        AddFear(Mathf.Lerp(0.08f, 0.28f, resolvedDamage) * fearShare);
+        AddPain(Mathf.Lerp(0.08f, 0.24f, resolvedDamage));
+        AddAlertness(Mathf.Lerp(0.1f, 0.22f, resolvedDamage));
+    }
+
+    public void NotifyEmbeddedSpearAttached()
+    {
+        AddPain(0.14f);
+        AddAlertness(0.12f);
+
+        if (aggression + bravery >= fearfulness + fear)
+        {
+            AddAnger(Mathf.Lerp(0.08f, 0.18f, aggression));
+            AddFear(Mathf.Lerp(0.03f, 0.08f, fearfulness));
+        }
+        else
+        {
+            AddFear(Mathf.Lerp(0.08f, 0.18f, fearfulness));
+            AddAnger(Mathf.Lerp(0.03f, 0.08f, aggression));
+        }
     }
 
     public bool IsExhausted => fatigue >= 0.75f;

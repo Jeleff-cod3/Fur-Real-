@@ -124,3 +124,11 @@ def get_room(lobby_id: int) -> RoomRuntimeState:
     if lobby_id not in ROOMS:
         ROOMS[lobby_id] = RoomRuntimeState(lobby_id=lobby_id)
     return ROOMS[lobby_id]
+
+
+def get_existing_room(lobby_id: int) -> RoomRuntimeState | None:
+    return ROOMS.get(lobby_id)
+
+
+def close_room(lobby_id: int) -> None:
+    ROOMS.pop(lobby_id, None)

@@ -1,4 +1,4 @@
-from random import choices
+from random import choices, randint
 from string import ascii_uppercase, digits
 
 from asgiref.sync import async_to_sync
@@ -10,8 +10,17 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Lobby, LobbyMember
-from .serializers import CreateLobbySerializer, LobbyMemberSerializer, LobbySerializer, ReadySerializer
+from realtime.message_types import LOBBY_CLOSED, LOBBY_SNAPSHOT
+from realtime.room_state import close_room
+
+from .models import Lobby, LobbyDeparture, LobbyMember
+from .serializers import (
+    CreateLobbySerializer,
+    LobbyMemberSerializer,
+    LobbySerializer,
+    ReadySerializer,
+    UpdateLobbySettingsSerializer,
+)
 
 
 CODE_ALPHABET = ascii_uppercase + digits
@@ -32,10 +41,38 @@ def next_available_slot(lobby: Lobby) -> int | None:
     return None
 
 
+def generate_map_seed() -> int:
+    return randint(1000, 99999999)
+
+
+def build_lobby_snapshot_payload(lobby: Lobby) -> dict:
+    serialized = LobbySerializer(lobby).data
+    return {
+        "type": LOBBY_SNAPSHOT,
+        "lobbyId": serialized["id"],
+        "code": serialized["code"],
+        "hostId": serialized["hostId"],
+        "mapSeed": serialized["mapSeed"],
+        "isStarted": serialized["isStarted"],
+        "players": serialized["members"],
+    }
+
+
 def broadcast_lobby_event(lobby_id: int, payload: dict) -> None:
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f"lobby_{lobby_id}",
+        {
+            "type": "broadcast_event",
+            "payload": payload,
+        },
+    )
+
+
+def broadcast_game_event(lobby_id: int, payload: dict) -> None:
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"game_{lobby_id}",
         {
             "type": "broadcast_event",
             "payload": payload,
@@ -55,6 +92,7 @@ class CreateLobbyView(APIView):
                 code=generate_lobby_code(),
                 host=request.user,
                 max_players=serializer.validated_data["maxPlayers"],
+                map_seed=serializer.validated_data.get("mapSeed", generate_map_seed()),
             )
             LobbyMember.objects.create(lobby=lobby, user=request.user, player_slot=0)
 
@@ -70,6 +108,9 @@ class JoinLobbyView(APIView):
 
         if lobby.is_started:
             return Response({"detail": "Lobby has already started."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if LobbyDeparture.objects.filter(lobby=lobby, user=request.user).exists():
+            return Response({"detail": "You already left this lobby and cannot rejoin it."}, status=status.HTTP_403_FORBIDDEN)
 
         existing_member = lobby.members.filter(user=request.user).first()
         if existing_member is not None:
@@ -127,6 +168,30 @@ class ReadyLobbyView(APIView):
         return Response(payload)
 
 
+class UpdateLobbySettingsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, lobby_id: int):
+        lobby = get_object_or_404(Lobby.objects.prefetch_related("members__user"), pk=lobby_id)
+        if lobby.host_id != request.user.id:
+            return Response({"detail": "Only the host can change lobby settings."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = UpdateLobbySettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        next_seed = serializer.validated_data.get("mapSeed")
+        if serializer.validated_data.get("randomizeSeed") or next_seed is None:
+            next_seed = generate_map_seed()
+
+        lobby.map_seed = next_seed
+        lobby.save(update_fields=["map_seed"])
+
+        lobby = Lobby.objects.prefetch_related("members__user").get(pk=lobby.pk)
+        payload = build_lobby_snapshot_payload(lobby)
+        broadcast_lobby_event(lobby.id, payload)
+        return Response(payload)
+
+
 class StartLobbyView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -149,7 +214,8 @@ class StartLobbyView(APIView):
         payload = {
             "type": "game_started",
             "lobbyId": lobby.id,
-            "mapId": request.data.get("mapId", "test_map"),
+            "mapId": request.data.get("mapId", f"seed_{lobby.map_seed}"),
+            "mapSeed": lobby.map_seed,
             "players": [
                 {
                     "playerId": member.player_id,
@@ -162,6 +228,34 @@ class StartLobbyView(APIView):
         broadcast_lobby_event(lobby.id, payload)
 
         return Response(payload)
+
+
+class LeaveLobbyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, lobby_id: int):
+        lobby = get_object_or_404(Lobby.objects.prefetch_related("members__user"), pk=lobby_id)
+        member = get_object_or_404(LobbyMember, lobby=lobby, user=request.user)
+        is_host = lobby.host_id == request.user.id
+
+        if is_host:
+            payload = {
+                "type": LOBBY_CLOSED,
+                "lobbyId": lobby.id,
+                "reason": "host_left",
+                "message": "The host left, so the lobby was closed.",
+            }
+            broadcast_lobby_event(lobby.id, payload)
+            broadcast_game_event(lobby.id, payload)
+            close_room(lobby.id)
+            lobby.delete()
+            return Response({"detail": "Host left. Lobby closed."}, status=status.HTTP_200_OK)
+
+        with transaction.atomic():
+            LobbyDeparture.objects.get_or_create(lobby=lobby, user=request.user)
+            member.delete()
+
+        return Response({"detail": "You left the lobby."}, status=status.HTTP_200_OK)
 
 
 class LobbyDetailView(APIView):

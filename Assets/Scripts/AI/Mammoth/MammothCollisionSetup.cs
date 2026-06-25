@@ -107,6 +107,8 @@ public class MammothCollisionSetup : MonoBehaviour
         agent.radius = 1.5f;
         agent.height = 3f;
         agent.stoppingDistance = 3.5f;
+        agent.autoRepath = true;
+        agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
     }
 
     private void EnsureEnemyHealth()

@@ -11,6 +11,7 @@ from lobbies.models import Lobby, LobbyMember
 
 from .message_types import (
     HEARTBEAT,
+    LOBBY_CLOSED,
     LOBBY_SNAPSHOT,
     MAMMOTH_HEALTH,
     MAMMOTH_STATE,
@@ -21,7 +22,7 @@ from .message_types import (
     PONG,
     ROOM_SNAPSHOT,
 )
-from .room_state import PlayerRuntimeState, get_room
+from .room_state import PlayerRuntimeState, get_existing_room, get_room
 from .validators import is_valid_mammoth_health, is_valid_mammoth_state, is_valid_player_state
 
 JSON_SEPARATORS = (",", ":")
@@ -61,6 +62,7 @@ def get_lobby_snapshot(lobby_id: int) -> dict | None:
         "lobbyId": lobby.id,
         "code": lobby.code,
         "hostId": lobby.host_id,
+        "mapSeed": lobby.map_seed,
         "isStarted": lobby.is_started,
         "players": [
             {
@@ -275,6 +277,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             )
             room.connections[self.channel_name] = self
 
+            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
             await self.accept()
             self.heartbeat_task = asyncio.ensure_future(self._heartbeat_loop())
             await self.send_room_snapshot()
@@ -306,13 +309,15 @@ class GameConsumer(AsyncWebsocketConsumer):
             return
 
         try:
-            room = get_room(self.lobby_id)
-            if hasattr(self, "user") and self.user.id in room.players:
+            room = get_existing_room(self.lobby_id)
+            if room is not None and hasattr(self, "user") and self.user.id in room.players:
                 del room.players[self.user.id]
 
-            room.connections.pop(self.channel_name, None)
+            if room is not None:
+                room.connections.pop(self.channel_name, None)
+            await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
-            if hasattr(self, "player_id"):
+            if room is not None and hasattr(self, "player_id"):
                 await send_to_game_room(
                     room,
                     {

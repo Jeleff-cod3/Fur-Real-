@@ -50,8 +50,9 @@ public class PickupableWeapon : MonoBehaviour
     [SerializeField] private float dropGroundProbeHeight = 8f;
     [SerializeField] private float droppedGroundClearance = 0.04f;
     [SerializeField] private float minimumStuckHoldTime = 0.75f;
-    [SerializeField] private float violentMoveDetachDelay = 0.45f;
-    [SerializeField] private float violentMoveDetachSpeed = 6.5f;
+    [SerializeField] private float safeDetachOpportunityDelay = 0.85f;
+    [SerializeField] private float safeDetachThreatDistance = 11f;
+    [SerializeField] private float safeDetachMotionSpeed = 1.15f;
     [SerializeField] private float detachUpwardImpulse = 1.2f;
 
     [Header("Visual")]
@@ -83,9 +84,12 @@ public class PickupableWeapon : MonoBehaviour
     private Transform stuckParent;
     private EnemyHealth stuckTargetHealth;
     private MammothState stuckMammothState;
+    private MammothSenses stuckMammothSenses;
+    private MammothPersonality stuckMammothPersonality;
     private Vector3 stuckParentLastPosition;
     private float stuckStartTime;
-    private float violentMoveTimer;
+    private float safeDetachTimer;
+    private bool registeredWithMammothState;
 
     private readonly HashSet<Component> damagedMeleeTargets = new HashSet<Component>();
 
@@ -492,13 +496,14 @@ public class PickupableWeapon : MonoBehaviour
 
     private void HandleSpearHit(RaycastHit hit, Vector3 velocity)
     {
-        IDamageable damageable = FindDamageable(hit.collider);
+        Component damageableComponent = FindDamageableComponent(hit.collider);
+        IDamageable damageable = damageableComponent as IDamageable;
         bool hitGround = IsGroundHit(hit.collider);
 
         if (damageable != null)
         {
-            ApplyDamage(FindDamageableComponent(hit.collider), damageable, hit.point);
-            StickIntoTarget(hit.collider, hit.point, GetSafeVelocityDirection(velocity));
+            ApplyDamage(damageableComponent, damageable, hit.point);
+            StickIntoTarget(hit.collider, damageableComponent, hit.point, GetSafeVelocityDirection(velocity));
             Debug.Log($"Spear stabbed into {hit.collider.name}.");
             return;
         }
@@ -636,7 +641,7 @@ public class PickupableWeapon : MonoBehaviour
         stuckParent = targetParent;
         stuckParentLastPosition = stuckParent != null ? stuckParent.position : transform.position;
         stuckStartTime = Time.time;
-        violentMoveTimer = 0f;
+        safeDetachTimer = 0f;
 
         stuckTargetHealth = stuckParent != null ? stuckParent.GetComponentInParent<EnemyHealth>() : null;
         if (stuckTargetHealth != null)
@@ -646,6 +651,16 @@ public class PickupableWeapon : MonoBehaviour
         }
 
         stuckMammothState = stuckParent != null ? stuckParent.GetComponentInParent<MammothState>() : null;
+        stuckMammothSenses = stuckParent != null ? stuckParent.GetComponentInParent<MammothSenses>() : null;
+        stuckMammothPersonality = stuckParent != null ? stuckParent.GetComponentInParent<MammothPersonality>() : null;
+
+        if (stuckMammothState != null)
+        {
+            stuckMammothState.NotifyEmbeddedSpearAttached();
+            registeredWithMammothState = true;
+        }
+
+        stuckMammothPersonality?.NotifyEmbeddedSpearAttached();
     }
 
     private void ClearStuckAttachment()
@@ -655,12 +670,20 @@ public class PickupableWeapon : MonoBehaviour
             stuckTargetHealth.Died -= HandleStuckTargetDied;
         }
 
+        if (registeredWithMammothState && stuckMammothState != null)
+        {
+            stuckMammothState.NotifyEmbeddedSpearRemoved();
+        }
+
         stuckParent = null;
         stuckTargetHealth = null;
         stuckMammothState = null;
+        stuckMammothSenses = null;
+        stuckMammothPersonality = null;
         stuckParentLastPosition = Vector3.zero;
         stuckStartTime = 0f;
-        violentMoveTimer = 0f;
+        safeDetachTimer = 0f;
+        registeredWithMammothState = false;
     }
 
     private void UpdateStuckAttachment()
@@ -681,35 +704,72 @@ public class PickupableWeapon : MonoBehaviour
             return;
         }
 
-        bool violentAction = IsViolentMammothAction();
-        bool violentMotion = parentVelocity.magnitude >= violentMoveDetachSpeed;
-
-        if (violentAction || violentMotion)
+        if (HasSafeDetachOpportunity(parentVelocity))
         {
-            violentMoveTimer += Time.deltaTime;
+            safeDetachTimer += Time.deltaTime;
         }
         else
         {
-            violentMoveTimer = 0f;
+            safeDetachTimer = 0f;
         }
 
-        if (violentMoveTimer >= violentMoveDetachDelay)
+        if (safeDetachTimer >= safeDetachOpportunityDelay)
         {
-            ReleaseStuckSpear(parentVelocity);
+            ReleaseStuckSpear(parentVelocity * 0.25f);
         }
     }
 
-    private bool IsViolentMammothAction()
+    private bool HasSafeDetachOpportunity(Vector3 parentVelocity)
     {
         if (stuckMammothState == null)
         {
             return false;
         }
 
-        return stuckMammothState.currentAction == MammothActionType.Charge ||
-            stuckMammothState.currentAction == MammothActionType.RunAway ||
-            stuckMammothState.currentAction == MammothActionType.Stomp ||
-            stuckMammothState.currentAction == MammothActionType.TwistAttack;
+        if (parentVelocity.magnitude > safeDetachMotionSpeed)
+        {
+            return false;
+        }
+
+        bool safeAction =
+            stuckMammothState.currentAction == MammothActionType.Idle ||
+            stuckMammothState.currentAction == MammothActionType.Roam ||
+            stuckMammothState.currentAction == MammothActionType.Investigate ||
+            stuckMammothState.currentAction == MammothActionType.Threaten ||
+            stuckMammothState.currentAction == MammothActionType.RunAway;
+
+        if (!safeAction)
+        {
+            return false;
+        }
+
+        if (stuckMammothState.WasDamagedRecently(minimumStuckHoldTime))
+        {
+            return false;
+        }
+
+        if (stuckMammothSenses == null)
+        {
+            return true;
+        }
+
+        if (!stuckMammothSenses.HasTarget)
+        {
+            return true;
+        }
+
+        float targetDistance = stuckMammothSenses.DistanceToTarget;
+        if (targetDistance < safeDetachThreatDistance)
+        {
+            return false;
+        }
+
+        if (stuckMammothState.currentAction == MammothActionType.RunAway)
+        {
+            return targetDistance >= safeDetachThreatDistance * 1.2f;
+        }
+
+        return targetDistance >= safeDetachThreatDistance;
     }
 
     private void HandleStuckTargetDied(EnemyHealth deadTarget)
@@ -1091,12 +1151,21 @@ public class PickupableWeapon : MonoBehaviour
                 : GetCurrentTipDirection();
         }
 
-        StickIntoTarget(meleeImpactCollider, meleeImpactPoint, tipDirection.normalized);
+        StickIntoTarget(
+            meleeImpactCollider,
+            FindDamageableComponent(meleeImpactCollider),
+            meleeImpactPoint,
+            tipDirection.normalized
+        );
         StopAttackRoutine();
         ResetMeleeImpactState();
     }
 
-    private void StickIntoTarget(Collider targetCollider, Vector3 hitPoint, Vector3 direction)
+    private void StickIntoTarget(
+        Collider targetCollider,
+        Component damageableComponent,
+        Vector3 hitPoint,
+        Vector3 direction)
     {
         state = SpearState.Stuck;
         ClearStuckAttachment();
@@ -1111,11 +1180,7 @@ public class PickupableWeapon : MonoBehaviour
         transform.rotation = stickRotation;
         transform.position = embeddedTipPosition - GetCurrentTipOffset();
 
-        Transform stickParent = targetCollider != null && targetCollider.attachedRigidbody != null
-            ? targetCollider.attachedRigidbody.transform
-            : targetCollider != null
-                ? targetCollider.transform
-                : null;
+        Transform stickParent = ResolveStickParent(targetCollider, damageableComponent);
 
         if (stickParent != null)
         {
@@ -1126,6 +1191,32 @@ public class PickupableWeapon : MonoBehaviour
         RegisterStuckAttachment(stickParent);
         FreezeAsStuckPickup();
         Debug.Log($"Spear stuck in {targetCollider?.name ?? "target"}.");
+    }
+
+    private static Transform ResolveStickParent(Collider targetCollider, Component damageableComponent)
+    {
+        if (damageableComponent != null)
+        {
+            EnemyHealth enemyHealth = damageableComponent as EnemyHealth;
+            if (enemyHealth == null)
+            {
+                enemyHealth = damageableComponent.GetComponentInParent<EnemyHealth>();
+            }
+
+            if (enemyHealth != null)
+            {
+                return enemyHealth.transform;
+            }
+
+            return damageableComponent.transform.root;
+        }
+
+        if (targetCollider != null && targetCollider.attachedRigidbody != null)
+        {
+            return targetCollider.attachedRigidbody.transform;
+        }
+
+        return targetCollider != null ? targetCollider.transform : null;
     }
 
     private void SnapTipToImpactPoint()

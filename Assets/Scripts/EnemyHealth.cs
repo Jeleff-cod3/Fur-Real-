@@ -8,6 +8,7 @@ public class EnemyHealth : MonoBehaviour, IDamageable
     private int currentHealth;
     private bool hasDied;
     private float ignoreNetworkDeathUntil;
+    [NonSerialized] private int configuredMaxHealth = -1;
 
     private MammothState mammothState;
     private MammothPersonality mammothPersonality;
@@ -18,17 +19,36 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
     public int CurrentHealth => currentHealth;
     public int MaxHealth => maxHealth;
+    public int ConfiguredMaxHealth
+    {
+        get
+        {
+            CaptureConfiguredMaxHealth();
+            return configuredMaxHealth;
+        }
+    }
+
     public float HealthPercent => maxHealth <= 0 ? 0f : Mathf.Clamp01((float)currentHealth / maxHealth);
     public bool IsDead => currentHealth <= 0 || hasDied;
 
+    private void OnValidate()
+    {
+        if (!Application.isPlaying)
+        {
+            configuredMaxHealth = Mathf.Max(1, maxHealth);
+        }
+    }
+
     private void Awake()
     {
+        CaptureConfiguredMaxHealth();
         CacheComponents();
         ResetHealthToFull(1.5f);
     }
 
     private void OnEnable()
     {
+        CaptureConfiguredMaxHealth();
         CacheComponents();
 
         if (currentHealth <= 0)
@@ -41,6 +61,7 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
     public void ResetHealthToFull(float networkDeathProtectionSeconds = 1.5f)
     {
+        CaptureConfiguredMaxHealth();
         maxHealth = Mathf.Max(1, maxHealth);
         currentHealth = maxHealth;
         hasDied = false;
@@ -52,6 +73,20 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         HealthChanged?.Invoke(currentHealth, maxHealth);
 
         Debug.Log($"{gameObject.name} health reset to {currentHealth}/{maxHealth}");
+    }
+
+    public void ResetToConfiguredMaxHealth(float networkDeathProtectionSeconds = 1.5f)
+    {
+        CaptureConfiguredMaxHealth();
+        maxHealth = configuredMaxHealth;
+        ResetHealthToFull(networkDeathProtectionSeconds);
+    }
+
+    public void SetMaxHealthAndReset(int newMaxHealth, float networkDeathProtectionSeconds = 1.5f)
+    {
+        CaptureConfiguredMaxHealth();
+        maxHealth = Mathf.Max(1, newMaxHealth);
+        ResetHealthToFull(networkDeathProtectionSeconds);
     }
 
     public void TakeDamage(int damage)
@@ -94,6 +129,12 @@ public class EnemyHealth : MonoBehaviour, IDamageable
             mammothState.MarkDamaged(resolvedSourcePosition);
         }
 
+        bool canSeeThreat = mammothSenses != null && mammothSenses.CanSeeTarget;
+        bool closeThreat = resolvedSourcePosition.HasValue &&
+            Vector3.Distance(transform.position, resolvedSourcePosition.Value) <= 9f;
+        bool repeatedThreat = mammothState != null && mammothState.repeatedThreatHitCount >= 2;
+        bool hasEmbeddedSpears = mammothState != null && mammothState.HasEmbeddedSpears;
+
         if (mammothSenses != null && resolvedSourcePosition.HasValue)
         {
             mammothSenses.ReportSuspiciousSound(resolvedSourcePosition.Value, 0.85f + normalizedDamage);
@@ -101,10 +142,13 @@ public class EnemyHealth : MonoBehaviour, IDamageable
 
         if (mammothPersonality != null)
         {
-            mammothPersonality.AddAnger(Mathf.Lerp(0.12f, 0.28f, normalizedDamage));
-            mammothPersonality.AddFear(Mathf.Lerp(0.05f, 0.18f, normalizedDamage));
-            mammothPersonality.AddPain(Mathf.Lerp(0.08f, 0.25f, normalizedDamage));
-            mammothPersonality.AddAlertness(Mathf.Lerp(0.12f, 0.28f, normalizedDamage));
+            mammothPersonality.RegisterThreatEvent(
+                normalizedDamage,
+                canSeeThreat,
+                closeThreat,
+                repeatedThreat,
+                hasEmbeddedSpears
+            );
         }
 
         Debug.Log($"{gameObject.name} took {damage} damage. HP: {currentHealth}/{maxHealth}");
@@ -207,9 +251,19 @@ public class EnemyHealth : MonoBehaviour, IDamageable
         mammothState.lastThreatenTime = 0f;
         mammothState.repeatedThreatHitCount = 0;
         mammothState.hasDamageSource = false;
+        mammothState.embeddedSpearCount = 0;
+        mammothState.lastEmbeddedSpearTime = 0f;
         mammothState.lastActionChangeTime = Time.time;
         mammothSenses?.ResetAwareness();
         mammothPersonality?.ResetRuntimeEmotion();
+    }
+
+    private void CaptureConfiguredMaxHealth()
+    {
+        if (configuredMaxHealth < 1)
+        {
+            configuredMaxHealth = Mathf.Max(1, maxHealth);
+        }
     }
 
     private static Vector3? ResolveSourcePosition(Transform sourceTransform, Vector3? sourcePosition)

@@ -33,6 +33,7 @@ public sealed class LobbyDto
     public string code;
     public int hostId;
     public int maxPlayers;
+    public int mapSeed;
     public bool isStarted;
     public string created_at;
     public LobbyMemberDto[] members;
@@ -49,6 +50,7 @@ public sealed class JoinLobbyResponseDto
 public sealed class CreateLobbyRequestDto
 {
     public int maxPlayers = 4;
+    public int mapSeed;
 }
 
 [Serializable]
@@ -61,6 +63,14 @@ public sealed class ReadyRequestDto
 public sealed class StartLobbyRequestDto
 {
     public string mapId = "test_map";
+    public int mapSeed;
+}
+
+[Serializable]
+public sealed class UpdateLobbySettingsRequestDto
+{
+    public int mapSeed;
+    public bool randomizeSeed;
 }
 
 [Serializable]
@@ -98,6 +108,7 @@ public sealed class LobbySnapshotDto
     public int lobbyId;
     public string code;
     public int hostId;
+    public int mapSeed;
     public bool isStarted;
     public LobbyMemberDto[] players;
 }
@@ -119,7 +130,23 @@ public sealed class GameStartedDto
     public string type;
     public int lobbyId;
     public string mapId;
+    public int mapSeed;
     public GameStartedPlayerDto[] players;
+}
+
+[Serializable]
+public sealed class LobbyClosedDto
+{
+    public string type;
+    public int lobbyId;
+    public string reason;
+    public string message;
+}
+
+[Serializable]
+public sealed class OperationStatusDto
+{
+    public string detail;
 }
 
 [Serializable]
