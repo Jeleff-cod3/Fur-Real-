@@ -6,11 +6,6 @@ public class MammothHealthBarUI : MonoBehaviour
     [Header("Targeting")]
     [SerializeField] private EnemyHealth target;
     [SerializeField] private string preferredTargetName = "Mammoth";
-    [SerializeField] private string playerTag = "Player";
-
-    [Header("Visibility")]
-    [SerializeField] private float showDistance = 18f;
-    [SerializeField] private float hideDistance = 22f;
 
     [Header("Layout")]
     [SerializeField] private float bottomOffset = 24f;
@@ -65,8 +60,6 @@ public class MammothHealthBarUI : MonoBehaviour
     private float bleedEmissionAccumulator;
     private Canvas uiCanvas;
     private static Canvas sharedOverlayCanvas;
-    private Transform cachedPlayer;
-    private bool isVisibleByDistance;
 
     private void Awake()
     {
@@ -97,7 +90,6 @@ public class MammothHealthBarUI : MonoBehaviour
             ApplyHealthSnapshot(boundTarget.CurrentHealth, boundTarget.MaxHealth);
         }
 
-        UpdateDistanceVisibility();
         AnimateBar();
     }
 
@@ -124,8 +116,8 @@ public class MammothHealthBarUI : MonoBehaviour
 
         boundTarget.HealthChanged += HandleHealthChanged;
         isSubscribed = true;
+        SetVisible(true);
         ApplyHealthSnapshot(boundTarget.CurrentHealth, boundTarget.MaxHealth, true);
-        UpdateDistanceVisibility(true);
     }
 
     private void Unsubscribe()
@@ -460,83 +452,5 @@ public class MammothHealthBarUI : MonoBehaviour
         {
             root.gameObject.SetActive(visible);
         }
-    }
-
-    private void UpdateDistanceVisibility(bool forceRefreshPlayer = false)
-    {
-        if (boundTarget == null)
-        {
-            isVisibleByDistance = false;
-            SetVisible(false);
-            return;
-        }
-
-        Transform player = ResolvePlayer(forceRefreshPlayer);
-        if (player == null)
-        {
-            isVisibleByDistance = false;
-            SetVisible(false);
-            return;
-        }
-
-        Vector3 mammothPosition = boundTarget.transform.position;
-        Vector3 playerPosition = player.position;
-        mammothPosition.y = 0f;
-        playerPosition.y = 0f;
-
-        float distance = Vector3.Distance(playerPosition, mammothPosition);
-        float safeShowDistance = Mathf.Max(0.1f, showDistance);
-        float safeHideDistance = Mathf.Max(safeShowDistance, hideDistance);
-
-        if (!isVisibleByDistance)
-        {
-            isVisibleByDistance = distance <= safeShowDistance;
-        }
-        else if (distance >= safeHideDistance)
-        {
-            isVisibleByDistance = false;
-        }
-
-        SetVisible(isVisibleByDistance);
-    }
-
-    private Transform ResolvePlayer(bool forceRefresh)
-    {
-        if (!forceRefresh && IsPlayerValid(cachedPlayer))
-        {
-            return cachedPlayer;
-        }
-
-        cachedPlayer = null;
-
-        if (boundTarget != null)
-        {
-            Transform closestRuntimePlayer = MultiplayerPrototype.GetClosestPlayerTransform(boundTarget.transform.position);
-            if (IsPlayerValid(closestRuntimePlayer))
-            {
-                cachedPlayer = closestRuntimePlayer;
-                return cachedPlayer;
-            }
-        }
-
-        GameObject taggedPlayer = GameObject.FindGameObjectWithTag(playerTag);
-        if (taggedPlayer != null && taggedPlayer.activeInHierarchy)
-        {
-            cachedPlayer = taggedPlayer.transform;
-            return cachedPlayer;
-        }
-
-        PlayerHealth playerHealth = FindAnyObjectByType<PlayerHealth>();
-        if (playerHealth != null && playerHealth.gameObject.activeInHierarchy)
-        {
-            cachedPlayer = playerHealth.transform;
-        }
-
-        return cachedPlayer;
-    }
-
-    private static bool IsPlayerValid(Transform player)
-    {
-        return player != null && player.gameObject.activeInHierarchy;
     }
 }

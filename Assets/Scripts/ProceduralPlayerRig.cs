@@ -36,6 +36,10 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
     [SerializeField] private float heldCenterPull = 0.5f;
     [SerializeField] private Vector3 heldLiftOffset = new Vector3(0f, -0.08f, 0.05f);
     [SerializeField] private Vector3 throwBackOffset = new Vector3(0f, 0.65f, -0.75f);
+    [SerializeField] [Range(-1f, 1f)] private float weaponHandSideSign = -1f;
+    [SerializeField] private float itemHandEdgePadding = 0.035f;
+    [SerializeField] [Range(0f, 1f)] private float itemHoldForwardBias = 0.2f;
+    [SerializeField] private float minimumHeldItemHalfWidth = 0.08f;
 
     [Header("Movement Tuning")]
     [SerializeField] private bool tuneLegControllerToWorldMoveSpeed = true;
@@ -51,6 +55,11 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
     [SerializeField] private bool forceMeshRebuildAfterFinalSolve = true;
     [SerializeField] private bool solveAgainAfterLowerBodyOffsetRefresh = true;
     [SerializeField] private bool forceEveryMeshBuilderFinalFrame = true;
+
+    [Header("Body Collision")]
+    [SerializeField] private bool addCollisionToProceduralBodyMeshes = true;
+    [SerializeField] private bool proceduralBodyMeshCollidersConvex = true;
+    [SerializeField] private bool proceduralBodyMeshCollidersAreTriggers = false;
 
     [Header("Jump / Ground Support")]
     [SerializeField] private bool enableGroundSupport = true;
@@ -279,7 +288,12 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         legController.sideStepLaneReachRatio = 0.32f;
         legController.minimumStepDistanceBeforeStartReachRatio = 0.46f;
         legController.plantedGroundSnapTolerance = Mathf.Max(legController.plantedGroundSnapTolerance, 0.05f);
-        legController.snapFakeTargetDuringActiveSteps = true;
+        legController.snapFakeTargetDuringActiveSteps = false;
+        legController.legFakeTargetFrequencyHz = Mathf.Max(legController.legFakeTargetFrequencyHz, 18f);
+        legController.legFakeTargetSpeedFrequencyBoostHz = Mathf.Max(legController.legFakeTargetSpeedFrequencyBoostHz, 18f);
+        legController.fakeTargetLagCatchupReachPerSecond = Mathf.Max(legController.fakeTargetLagCatchupReachPerSecond, 16f);
+        legController.dynamicLegFakeTargetSpeedMultiplier = Mathf.Max(legController.dynamicLegFakeTargetSpeedMultiplier, 8.0f);
+        legController.dynamicLegFakeTargetAccelerationMultiplier = Mathf.Max(legController.dynamicLegFakeTargetAccelerationMultiplier, 28f);
     }
 
     public void PlaceCoreAt(Vector3 worldPosition)
@@ -395,9 +409,22 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         bool isThrowing = Time.time < throwWindupUntil;
         RefreshActionState();
 
+        float heldItemHalfWidth = carryPose == CarryPose.TwoHandItem
+            ? GetHeldItemHalfWidthAlongBodyRight()
+            : 0f;
+
         for (int i = 0; i < arms.Length; i++)
         {
-            arms[i].ApplyPoseOffset(carryPose, isThrowing, heldCenterPull, heldLiftOffset, throwBackOffset);
+            arms[i].ApplyPoseOffset(
+                carryPose,
+                isThrowing,
+                heldCenterPull,
+                heldLiftOffset,
+                throwBackOffset,
+                heldItemHalfWidth,
+                itemHoldForwardBias,
+                weaponHandSideSign,
+                itemHolder != null ? itemHolder.position : CoreNode.position);
         }
     }
 
@@ -687,6 +714,44 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         }
     }
 
+    private void SortOffsetNodesParentFirst(OffsetPositioningNode[] nodes)
+    {
+        if (nodes == null || nodes.Length <= 1)
+        {
+            return;
+        }
+
+        Array.Sort(nodes, (a, b) => GetOffsetNodeDependencyDepth(a).CompareTo(GetOffsetNodeDependencyDepth(b)));
+    }
+
+    private int GetOffsetNodeDependencyDepth(OffsetPositioningNode node)
+    {
+        if (node == null)
+        {
+            return 0;
+        }
+
+        int depth = 0;
+        Transform parent = node.parentNode;
+        int guard = 0;
+        while (parent != null && guard < 64)
+        {
+            guard++;
+            depth++;
+            OffsetPositioningNode parentOffset = parent.GetComponent<OffsetPositioningNode>();
+            if (parentOffset != null && parentOffset.parentNode != parent)
+            {
+                parent = parentOffset.parentNode;
+            }
+            else
+            {
+                parent = parent.parent;
+            }
+        }
+
+        return depth;
+    }
+
     private void ApplyRotationDrivers()
     {
         for (int i = 0; i < rotationDrivers.Length; i++)
@@ -946,6 +1011,15 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         {
             legController.Initialize();
         }
+
+        SpineFakeTargetSetter[] setters = GetComponentsInChildren<SpineFakeTargetSetter>(true);
+        for (int i = 0; i < setters.Length; i++)
+        {
+            if (setters[i] != null)
+            {
+                setters[i].RecaptureStaticBasisAfterRigScale();
+            }
+        }
     }
 
     private void UpdateGroundSupport(float dt)
@@ -1188,6 +1262,7 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         rotatableNodes = GetComponentsInChildren<RotatableNode>(true);
         rotatableNodePairs = GetComponentsInChildren<RotatableNodePair>(true);
         offsetNodes = GetComponentsInChildren<OffsetPositioningNode>(true);
+        SortOffsetNodesParentFirst(offsetNodes);
         limbSolvers = GetComponentsInChildren<LimbSolver>(true);
         meshBuilders = GetComponentsInChildren<MeshingOffsetLoftMeshBuilder>(true);
 
@@ -1204,8 +1279,40 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         }
 
         AutoRepairCriticalRigReferences();
+        ApplyScaleSafeSpineTargetDefaults();
         WireGameplayHolders();
         ConfigureChildEvaluationOrder();
+    }
+
+
+
+    private void ApplyScaleSafeSpineTargetDefaults()
+    {
+        for (int i = 0; i < spineTargetSetters.Length; i++)
+        {
+            SpineFakeTargetSetter setter = spineTargetSetters[i];
+            if (setter == null)
+            {
+                continue;
+            }
+
+            setter.preventWorldZeroSpineTarget = true;
+            setter.holdTargetAtCoreWhenEvaluationFails = true;
+            setter.holdFakeTargetInsideSafeBox = true;
+            setter.moveSpineTailNodeToFakeTarget = false;
+            setter.applyOffsetWritesImmediately = true;
+            setter.enforceSetterOwnsFakeTargetTransform = true;
+            setter.useLiveBasisUntilFirstValidTarget = true;
+            setter.ignoreUninitializedWorldZeroRealTargetAtStartup = true;
+            setter.recaptureBasisDuringStartup = true;
+            setter.startupBasisRecaptureFrames = Mathf.Max(setter.startupBasisRecaptureFrames, 8);
+            setter.minNoClipRadiusAsReachFraction = Mathf.Max(setter.minNoClipRadiusAsReachFraction, 0.095f);
+            setter.minimumWorldZeroGuardRadius = Mathf.Max(setter.minimumWorldZeroGuardRadius, 0.12f);
+            setter.worldZeroGuardRadius = Mathf.Max(setter.worldZeroGuardRadius, setter.minimumWorldZeroGuardRadius);
+            setter.minimumPoleDistance = Mathf.Max(setter.minimumPoleDistance, 0.06f);
+            setter.bodyAnchoredTargetForwardDistance = Mathf.Max(setter.bodyAnchoredTargetForwardDistance, setter.manualMaxReach * 0.10f, 0.10f);
+            setter.bodyAnchoredTargetPlaneHeight = Mathf.Max(setter.bodyAnchoredTargetPlaneHeight, setter.manualMaxReach * 0.12f, 0.12f);
+        }
     }
 
     private void WireGameplayHolders()
@@ -1306,6 +1413,9 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
                 setter.smoothOutputTarget = false;
                 setter.holdFakeTargetInsideSafeBox = true;
                 setter.moveSpineTailNodeToFakeTarget = false;
+                setter.enforceSetterOwnsFakeTargetTransform = true;
+                setter.useLiveBasisUntilFirstValidTarget = true;
+                setter.ignoreUninitializedWorldZeroRealTargetAtStartup = true;
             }
         }
 
@@ -1365,6 +1475,22 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
             {
                 solver.managedByProceduralRig = true;
                 solver.solveInLateUpdate = false;
+                solver.preTranslateIntermediateNodesByEndpointDelta = true;
+                solver.endpointDeltaBlend = 0.5f;
+                solver.maxEndpointPreTranslateReachFraction = Mathf.Max(solver.maxEndpointPreTranslateReachFraction, 0.75f);
+                solver.repairStaleCapturedBoneLengths = true;
+
+                if (solver.tailTargetOverride != null)
+                {
+                    // Separate target handles are used by the spine fake target. Let the
+                    // setter own that handle, and do not pre-translate the visible chain
+                    // around it. The solver will read the handle, solve the chain, then put
+                    // the visible tail at the clamped endpoint after solving.
+                    solver.writeClampedTailTargetBackToTransform = false;
+                    solver.keepVisibleTailAtTargetWhenUsingOverride = true;
+                    solver.moveVisibleTailToOverrideTargetAfterSolving = true;
+                    solver.preTranslateWhenUsingTailTargetOverride = false;
+                }
             }
         }
 
@@ -1379,14 +1505,12 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
             builder.managedByProceduralRig = true;
             builder.debugLogging = false;
             builder.drawGizmos = false;
+            EnsureBodyMeshCollider(builder);
 
             if (throttleRuntimeMeshRebuilds)
             {
-                builder.minimumRuntimeRebuildInterval = Mathf.Max(
-                    builder.minimumRuntimeRebuildInterval,
-                    runtimeMeshRebuildInterval
-                );
-                builder.onlyRebuildWhenInputMoved = true;
+                builder.minimumRuntimeRebuildInterval = 0f;
+                builder.onlyRebuildWhenInputMoved = false;
             }
 
             if (maxRuntimeRingSamples >= 3)
@@ -1394,6 +1518,34 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
                 builder.ringSamples = Mathf.Min(builder.ringSamples, maxRuntimeRingSamples);
             }
         }
+    }
+
+
+
+    private void EnsureBodyMeshCollider(MeshingOffsetLoftMeshBuilder builder)
+    {
+        if (!addCollisionToProceduralBodyMeshes || builder == null)
+        {
+            return;
+        }
+
+        MeshCollider collider = builder.optionalMeshCollider;
+        if (collider == null)
+        {
+            collider = builder.GetComponent<MeshCollider>();
+        }
+
+        if (collider == null)
+        {
+            collider = builder.gameObject.AddComponent<MeshCollider>();
+        }
+
+        collider.convex = proceduralBodyMeshCollidersConvex;
+        collider.isTrigger = proceduralBodyMeshCollidersAreTriggers;
+        collider.cookingOptions = MeshColliderCookingOptions.EnableMeshCleaning |
+                                  MeshColliderCookingOptions.WeldColocatedVertices |
+                                  MeshColliderCookingOptions.CookForFasterSimulation;
+        builder.optionalMeshCollider = collider;
     }
 
     private void EnsureFrameDriver()
@@ -1471,7 +1623,7 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
         Vector3 midpoint = (rightHand + leftHand) * 0.5f;
 
         Vector3 weaponAnchor = carryPose == CarryPose.OneHandWeapon
-            ? rightHand
+            ? GetWeaponHandAnchor(leftHand, rightHand)
             : midpoint;
 
         Vector3 aimDirection = aimTarget != null ? aimTarget.position - weaponAnchor : CoreNode.forward;
@@ -1495,6 +1647,91 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
             itemHolder.position = midpoint;
             itemHolder.rotation = holderRotation;
         }
+
+        if (carryPose != CarryPose.None || Time.time < throwWindupUntil)
+        {
+            ApplyCarryPose(carryPose);
+        }
+    }
+
+    private Vector3 GetWeaponHandAnchor(Vector3 leftHand, Vector3 rightHand)
+    {
+        return weaponHandSideSign < 0f ? leftHand : rightHand;
+    }
+
+    private bool TryGetHeldItemWorldBounds(out Bounds bounds)
+    {
+        bounds = new Bounds(itemHolder != null ? itemHolder.position : CoreNode.position, Vector3.zero);
+        if (itemHolder == null)
+        {
+            return false;
+        }
+
+        Renderer[] renderers = itemHolder.GetComponentsInChildren<Renderer>(true);
+        bool hasBounds = false;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled)
+            {
+                continue;
+            }
+
+            if (!hasBounds)
+            {
+                bounds = renderer.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        Collider[] colliders = itemHolder.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Collider collider = colliders[i];
+            if (collider == null || !collider.enabled)
+            {
+                continue;
+            }
+
+            if (!hasBounds)
+            {
+                bounds = collider.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(collider.bounds);
+            }
+        }
+
+        return hasBounds;
+    }
+
+    private float GetHeldItemHalfWidthAlongBodyRight()
+    {
+        if (!TryGetHeldItemWorldBounds(out Bounds bounds))
+        {
+            return minimumHeldItemHalfWidth;
+        }
+
+        Vector3 right = CoreNode != null ? CoreNode.right : Vector3.right;
+        right.y = 0f;
+        if (right.sqrMagnitude <= Epsilon)
+        {
+            right = Vector3.right;
+        }
+        right.Normalize();
+
+        Vector3 extents = bounds.extents;
+        float projectedHalf = Mathf.Abs(right.x) * extents.x +
+                              Mathf.Abs(right.y) * extents.y +
+                              Mathf.Abs(right.z) * extents.z;
+
+        return Mathf.Max(minimumHeldItemHalfWidth, projectedHalf + itemHandEdgePadding);
     }
 
     private void RefreshActionState()
@@ -1688,19 +1925,26 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
             bool isThrowing,
             float centerPull,
             Vector3 heldLiftOffset,
-            Vector3 throwBackOffset)
+            Vector3 throwBackOffset,
+            float heldItemHalfWidth,
+            float itemForwardBias,
+            float weaponHandSideSign,
+            Vector3 heldItemCenterWorld)
         {
             if (offsetNode == null)
             {
                 return;
             }
 
-            bool shouldCenter = carryPose == CarryPose.TwoHandItem;
-            bool isWeaponHand = sideSign > 0f;
+            bool shouldHoldItem = carryPose == CarryPose.TwoHandItem;
+            bool isWeaponHand = Mathf.Sign(sideSign) == Mathf.Sign(weaponHandSideSign == 0f ? 1f : weaponHandSideSign);
 
-            Vector3 heldOffset = shouldCenter
-                ? ToWorldOffset(new Vector3(-sideSign * centerPull, heldLiftOffset.y, heldLiftOffset.z))
-                : Vector3.zero;
+            Vector3 heldOffset = Vector3.zero;
+            if (shouldHoldItem)
+            {
+                Vector3 desiredHandWorld = GetTwoHandItemGripWorld(heldItemHalfWidth, itemForwardBias, heldLiftOffset, heldItemCenterWorld);
+                heldOffset = offsetNode.CalculateDynamicOffsetForDesiredWorldPosition(HeldArmOffsetId, desiredHandWorld);
+            }
 
             Vector3 windupOffset = isThrowing && isWeaponHand
                 ? ToWorldOffset(throwBackOffset)
@@ -1709,6 +1953,23 @@ public sealed class ProceduralPlayerRig : MonoBehaviour
             offsetNode.SetDynamicOffset(HeldArmOffsetId, heldOffset);
             offsetNode.SetDynamicOffset(ThrowArmOffsetId, windupOffset);
             offsetNode.ApplyPosition();
+        }
+
+        private Vector3 GetTwoHandItemGripWorld(float heldItemHalfWidth, float itemForwardBias, Vector3 liftOffset, Vector3 heldItemCenterWorld)
+        {
+            if (core == null)
+            {
+                return CurrentTargetWorld;
+            }
+
+            float halfWidth = Mathf.Max(0f, heldItemHalfWidth);
+            float sideDistance = Mathf.Max(0f, halfWidth) * Mathf.Sign(sideSign);
+            float forwardDistance = Mathf.Max(0f, halfWidth) * Mathf.Clamp01(itemForwardBias);
+
+            return heldItemCenterWorld +
+                   core.right * sideDistance +
+                   core.forward * forwardDistance +
+                   core.up * liftOffset.y;
         }
 
         public void SetExternalTarget(Vector3 worldPosition)

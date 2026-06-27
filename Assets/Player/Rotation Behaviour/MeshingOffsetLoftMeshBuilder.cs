@@ -110,6 +110,9 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
 
     [Range(0f, 0.75f)] public float smoothingStrength = 0.25f;
 
+    [Tooltip("Aligns each section ring to the previous ring before bridging. This prevents a spine/limb mesh knot when a convex hull or projected loop chooses a different first vertex/winding on one middle section while the IK nodes themselves are correct.")]
+    public bool alignAdjacentSectionRings = true;
+
     [Header("Safety Gates")]
     [Tooltip("Offsets farther than this from their parent/core are ignored. <= 0 disables the limit.")]
     [Min(0f)] public float maxOffsetDistanceFromParent = 5f;
@@ -851,6 +854,98 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
         }
     }
 
+
+    private void AlignAdjacentSectionRings()
+    {
+        for (int s = 1; s < sections.Count; s++)
+        {
+            Section previous = sections[s - 1];
+            Section current = sections[s];
+
+            if (previous == null || current == null || previous.ring == null || current.ring == null)
+            {
+                continue;
+            }
+
+            if (previous.ring.Length < 3 || current.ring.Length != previous.ring.Length)
+            {
+                continue;
+            }
+
+            AlignRingToReference(current.ring, previous.ring);
+        }
+    }
+
+    private void AlignRingToReference(Vector3[] ring, Vector3[] reference)
+    {
+        int count = Mathf.Min(ring != null ? ring.Length : 0, reference != null ? reference.Length : 0);
+        if (count < 3)
+        {
+            return;
+        }
+
+        int bestShift = 0;
+        bool bestReverse = false;
+        float bestCost = float.PositiveInfinity;
+
+        for (int reverseFlag = 0; reverseFlag < 2; reverseFlag++)
+        {
+            bool reverse = reverseFlag == 1;
+
+            for (int shift = 0; shift < count; shift++)
+            {
+                float cost = 0f;
+
+                for (int i = 0; i < count; i++)
+                {
+                    int sourceIndex = reverse
+                        ? PositiveModulo(shift - i, count)
+                        : (shift + i) % count;
+
+                    cost += (ring[sourceIndex] - reference[i]).sqrMagnitude;
+
+                    if (cost >= bestCost)
+                    {
+                        break;
+                    }
+                }
+
+                if (cost < bestCost)
+                {
+                    bestCost = cost;
+                    bestShift = shift;
+                    bestReverse = reverse;
+                }
+            }
+        }
+
+        if (!bestReverse && bestShift == 0)
+        {
+            return;
+        }
+
+        Vector3[] aligned = new Vector3[count];
+        for (int i = 0; i < count; i++)
+        {
+            int sourceIndex = bestReverse
+                ? PositiveModulo(bestShift - i, count)
+                : (bestShift + i) % count;
+
+            aligned[i] = ring[sourceIndex];
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            ring[i] = aligned[i];
+        }
+    }
+
+    private int PositiveModulo(int value, int modulo)
+    {
+        int result = value % modulo;
+        return result < 0 ? result + modulo : result;
+    }
+
     private bool BuildMeshFromSections(bool runtimeBuild)
     {
         meshVertices.Clear();
@@ -864,6 +959,11 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
                 ClearMesh();
             }
             return false;
+        }
+
+        if (alignAdjacentSectionRings && sections.Count > 1)
+        {
+            AlignAdjacentSectionRings();
         }
 
         for (int s = 0; s < sections.Count; s++)
@@ -986,6 +1086,9 @@ public class MeshingOffsetLoftMeshBuilder : MonoBehaviour
 
         if (optionalMeshCollider != null)
         {
+            optionalMeshCollider.cookingOptions = MeshColliderCookingOptions.EnableMeshCleaning |
+                                             MeshColliderCookingOptions.WeldColocatedVertices |
+                                             MeshColliderCookingOptions.CookForFasterSimulation;
             optionalMeshCollider.sharedMesh = null;
             optionalMeshCollider.sharedMesh = mesh;
         }

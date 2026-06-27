@@ -95,6 +95,9 @@ public class SpineFakeTargetSetter : MonoBehaviour
     [Tooltip("STATIC forward reference. Use a separate static transform in front of the core. Do not use the moving fake pole here.")]
     public Transform forwardPoleVector;
 
+    [Tooltip("The spine behavior boxes must be based on a core-anchored static forward pole. If the prefab accidentally parents this pole offset to a moving/solved spine node, startup can become circular and lock the spine bent sideways.")]
+    public bool anchorForwardPoleOffsetToCore = true;
+
     [Tooltip("The real object / look target.")]
     public Transform realTarget;
 
@@ -353,10 +356,63 @@ public class SpineFakeTargetSetter : MonoBehaviour
     [Header("Runtime")]
     public bool updateEveryFrame = true;
 
+    [Tooltip("Startup-safe basis capture. The rig can scale/place/rotate the body after this component's Start, so recapture the static box basis for a few valid evaluations instead of permanently trusting the first launch pose.")]
+    public bool recaptureBasisDuringStartup = true;
+
+    [Min(0)] public int startupBasisRecaptureFrames = 4;
+
+    [Tooltip("If the captured basis becomes invalid or degenerate, recapture from the current references instead of freezing the spine in that bad basis.")]
+    public bool autoRepairInvalidCapturedBasis = true;
+
+    [Tooltip("When the fake spine target is already far from where this script wants it on the first valid frames, snap the script state to the valid target. This prevents a launch-time softlock without adding an external body-moving rule.")]
+    public bool snapInvalidStartupTargetToValidEvaluation = true;
+
+    [Tooltip("Distance as a fraction of spine reach that is considered a launch-time invalid fake-target state.")]
+    [Range(0f, 1f)] public float startupInvalidTargetReachRatio = 0.45f;
+
+    [Tooltip("Scales manual front/side box dimensions from authored height to current reach so small bodies do not collapse box behavior into a spin/side-bend.")]
+    public bool scaleManualSpecialBoxesByReach = true;
+
+    [Tooltip("Approximate authored spine reach used as the divisor for scaleManualSpecialBoxesByReach. If <= 0, the first valid max reach is captured.")]
+    [Min(0f)] public float authoredReferenceReach = 0f;
+
+    [Tooltip("Minimum side/front box scale. Prevents small-height players from having zero-size behavior boxes.")]
+    [Range(0.05f, 1f)] public float minimumSpecialBoxScale = 0.22f;
+
+    [Tooltip("Maximum side/front box scale so large bodies do not explode the box layout.")]
+    [Range(1f, 4f)] public float maximumSpecialBoxScale = 2.5f;
+
+    [Tooltip("How close the real target may be to a box seam before we keep the previous region for one frame. This prevents startup seam flicker from choosing a wrong permanent side rule.")]
+    [Range(0f, 0.2f)] public float boxSeamHysteresisReachRatio = 0.025f;
+
+    [Tooltip("Forces the solver to initialize after a successful fake-target evaluation if it has not initialized yet. This makes the spine target/chain order deterministic.")]
+    public bool initializeSolverAfterFirstValidTarget = true;
+
+    [Tooltip("Legacy option. For the spine this should normally stay false: the solver must keep the visible tail at the setter-owned target, not collapse it onto the next chain node.")]
+    public bool preferSolverTailRestoreForSpine = false;
+
+    [Tooltip("For deterministic startup, evaluate the first valid target from the live core/pole basis instead of trusting any serialized/captured stale basis. After the first good frame the captured basis may be used normally.")]
+    public bool useLiveBasisUntilFirstValidTarget = true;
+
+    [Tooltip("The fake spine target is owned only by this setter. Solvers may read it as a handle, but they must not clamp/write it back.")]
+    public bool enforceSetterOwnsFakeTargetTransform = true;
+
+    [Tooltip("If the mouse/look target is still sitting at world zero during launch while the body is elsewhere, treat it as uninitialized and evaluate the safe neutral box for that frame instead of committing a permanent side bend.")]
+    public bool ignoreUninitializedWorldZeroRealTargetAtStartup = true;
+
+    [Min(0f)] public float startupRealTargetWorldZeroRadius = 0.25f;
+
+    [Tooltip("Debug/state only: remaining early frames where static basis recapture is allowed.")]
+    [SerializeField] private int startupBasisFramesRemaining = 0;
+
+    private bool hasCapturedAuthoredReferenceReach = false;
+    private bool hasAppliedFirstValidTarget = false;
+    private ActiveRuleRegion previousStableRegion = ActiveRuleRegion.SafeBox;
+
     [Tooltip("When writing through OffsetPositioningNode, apply immediately so the IK solver reads the same-frame target/pole positions.")]
     public bool applyOffsetWritesImmediately = true;
 
-    [Tooltip("Spine-specific: lets the solver use its tail as a target handle, then restores that transform to the solved spine end after solving so attachments do not follow the high target handle.")]
+    [Tooltip("Legacy option. Leave off for the current spine: the fake target is a separate handle, and the visible tail should stay at the clamped target endpoint for meshing.")]
     public bool restoreSolverTailToSolvedEndAfterSolving = true;
 
     [Tooltip("If evaluation references are temporarily missing, hold the IK handle at a body-relative fallback instead of leaving it at a stale world-zero position.")]
@@ -462,7 +518,9 @@ public class SpineFakeTargetSetter : MonoBehaviour
         }
 
         CaptureInitialReachData();
+        startupBasisFramesRemaining = recaptureBasisDuringStartup ? Mathf.Max(0, startupBasisRecaptureFrames) : 0;
         CaptureStaticBasis();
+        ConfigureSolverTailRestoreMode();
 
         if (assignFakePoleToSolverNodes && limbSolver != null && fakePole != null)
         {
@@ -494,6 +552,7 @@ public class SpineFakeTargetSetter : MonoBehaviour
     public void CaptureStaticBasis()
     {
         ResolveReferences();
+        EnsureForwardPoleOffsetIsCoreAnchored();
 
         if (coreNode == null)
         {
@@ -550,6 +609,9 @@ public class SpineFakeTargetSetter : MonoBehaviour
 
     public bool EvaluateAndApply()
     {
+        RepairOrRecaptureBasisBeforeEvaluation();
+        ConfigureSolverTailRestoreMode();
+
         RuntimeDebugState state;
 
         if (!TryEvaluate(out state))
@@ -602,6 +664,16 @@ public class SpineFakeTargetSetter : MonoBehaviour
         else
         {
             targetVelocity = Vector3.zero;
+        }
+
+        if (snapInvalidStartupTargetToValidEvaluation && !hasAppliedFirstValidTarget && fakeTarget != null)
+        {
+            float allowedStartupError = Mathf.Max(0.001f, state.maxReach * startupInvalidTargetReachRatio);
+            if (Vector3.Distance(fakeTarget.position, state.desiredTargetWorld) > allowedStartupError)
+            {
+                finalTargetWorld = state.desiredTargetWorld;
+                targetVelocity = Vector3.zero;
+            }
         }
 
         Vector2 actualLocal = WorldToLocalPlane(
@@ -668,8 +740,114 @@ public class SpineFakeTargetSetter : MonoBehaviour
         state.finalFakePoleWorld = finalPoleWorld;
 
         debugState = state;
+        if (!hasAppliedFirstValidTarget && useCapturedStaticBasis)
+        {
+            CaptureStaticBasis();
+        }
+        hasAppliedFirstValidTarget = true;
+        previousStableRegion = state.activeRegion;
+
+        if (initializeSolverAfterFirstValidTarget && limbSolver != null && !limbSolver.IsInitialized)
+        {
+            limbSolver.InitializeChainData();
+        }
 
         return true;
+    }
+
+    public void ResetStartupBasisWarmup()
+    {
+        startupBasisFramesRemaining = recaptureBasisDuringStartup ? Mathf.Max(0, startupBasisRecaptureFrames) : 0;
+        hasAppliedFirstValidTarget = false;
+        targetVelocity = Vector3.zero;
+    }
+
+    public void RecaptureStaticBasisAfterRigScale()
+    {
+        ResolveReferences();
+        CaptureStaticBasis();
+        ResetStartupBasisWarmup();
+    }
+
+    private void ConfigureSolverTailRestoreMode()
+    {
+        if (limbSolver == null)
+        {
+            return;
+        }
+
+        // Reference torso behavior: the fake spine target is an IK handle, not the
+        // visible final mesh endpoint. The setter owns the fake target transform;
+        // the solver reads it, solves the curve, then restores the visible tail to
+        // the solved chain end so curvature stays distributed through the spine.
+        limbSolver.restoreTailToSolvedEndAfterSolving = restoreSolverTailToSolvedEndAfterSolving;
+        if (enforceSetterOwnsFakeTargetTransform)
+        {
+            limbSolver.writeClampedTailTargetBackToTransform = false;
+        }
+        limbSolver.keepVisibleTailAtTargetWhenUsingOverride = !restoreSolverTailToSolvedEndAfterSolving;
+        limbSolver.moveVisibleTailToOverrideTargetAfterSolving = !restoreSolverTailToSolvedEndAfterSolving;
+        limbSolver.preTranslateWhenUsingTailTargetOverride = false;
+        limbSolver.repairStaleCapturedBoneLengths = true;
+        if (useFakeTargetAsSolverTailOverride && fakeTarget != null)
+        {
+            limbSolver.tailTargetOverride = fakeTarget;
+        }
+    }
+
+    private void RepairOrRecaptureBasisBeforeEvaluation()
+    {
+        if (!useCapturedStaticBasis)
+        {
+            return;
+        }
+
+        bool shouldRecapture = false;
+
+        if (autoRepairInvalidCapturedBasis && !IsCapturedBasisUsable())
+        {
+            shouldRecapture = true;
+        }
+
+        if (recaptureBasisDuringStartup && startupBasisFramesRemaining > 0)
+        {
+            startupBasisFramesRemaining--;
+            shouldRecapture = true;
+        }
+
+        if (shouldRecapture)
+        {
+            CaptureStaticBasis();
+        }
+    }
+
+    private bool IsCapturedBasisUsable()
+    {
+        if (!hasCapturedBasis)
+        {
+            return false;
+        }
+
+        if (capturedPlaneNormal.sqrMagnitude <= Epsilon ||
+            capturedForwardAxis.sqrMagnitude <= Epsilon ||
+            capturedSideAxis.sqrMagnitude <= Epsilon)
+        {
+            return false;
+        }
+
+        Vector3 normal = capturedPlaneNormal.normalized;
+        Vector3 forward = Vector3.ProjectOnPlane(capturedForwardAxis, normal);
+        Vector3 side = Vector3.ProjectOnPlane(capturedSideAxis, normal);
+
+        if (forward.sqrMagnitude <= Epsilon || side.sqrMagnitude <= Epsilon)
+        {
+            return false;
+        }
+
+        forward.Normalize();
+        side.Normalize();
+
+        return Mathf.Abs(Vector3.Dot(forward, side)) < 0.35f;
     }
 
     private void ApplyEvaluationFailureFallback()
@@ -680,6 +858,7 @@ public class SpineFakeTargetSetter : MonoBehaviour
         }
 
         ResolveReferences();
+        EnsureForwardPoleOffsetIsCoreAnchored();
 
         if (coreNode == null || fakeTarget == null)
         {
@@ -754,6 +933,43 @@ public class SpineFakeTargetSetter : MonoBehaviour
             limbSolver.tailTargetOverride = fakeTarget;
             limbSolver.clampTailToReachBeforeSolving = true;
             limbSolver.enforceMinimumReachOnTail = false;
+        }
+    }
+
+
+
+    private void EnsureScaleSafeRuntimeValues(float maxReach)
+    {
+        float reach = Mathf.Max(0.001f, maxReach);
+        if (!hasCapturedAuthoredReferenceReach && authoredReferenceReach <= Epsilon)
+        {
+            authoredReferenceReach = reach;
+            hasCapturedAuthoredReferenceReach = true;
+        }
+        minimumWorldZeroGuardRadius = Mathf.Max(minimumWorldZeroGuardRadius, 0.08f, reach * 0.025f);
+        worldZeroGuardRadius = Mathf.Max(worldZeroGuardRadius, minimumWorldZeroGuardRadius);
+        minNoClipRadiusAsReachFraction = Mathf.Max(minNoClipRadiusAsReachFraction, 0.085f);
+        manualTargetNoClipRadius = Mathf.Max(manualTargetNoClipRadius, reach * minNoClipRadiusAsReachFraction);
+        minimumPoleDistance = Mathf.Max(minimumPoleDistance, reach * 0.035f, 0.05f);
+
+        if (Mathf.Abs(bodyAnchoredTargetForwardDistance) < reach * 0.06f)
+        {
+            bodyAnchoredTargetForwardDistance = reach * 0.10f;
+        }
+
+        if (Mathf.Abs(bodyAnchoredTargetPlaneHeight) < reach * 0.06f)
+        {
+            bodyAnchoredTargetPlaneHeight = reach * 0.12f;
+        }
+
+        if (zeroTargetFallbackDirection.sqrMagnitude <= Epsilon)
+        {
+            zeroTargetFallbackDirection = new Vector2(0f, 1f);
+        }
+
+        if (zeroPoleFallbackDirection.sqrMagnitude <= Epsilon)
+        {
+            zeroPoleFallbackDirection = new Vector2(0f, 1f);
         }
     }
 
@@ -848,6 +1064,7 @@ public class SpineFakeTargetSetter : MonoBehaviour
         state = new RuntimeDebugState();
 
         ResolveReferences();
+        EnsureForwardPoleOffsetIsCoreAnchored();
 
         if (coreNode == null || fakeTarget == null)
         {
@@ -881,6 +1098,7 @@ public class SpineFakeTargetSetter : MonoBehaviour
         }
 
         float maxReach = GetMaxReach();
+        EnsureScaleSafeRuntimeValues(maxReach);
         float minReach = GetMinReach(maxReach);
         float noClipRadius = GetTargetNoClipRadius(maxReach);
 
@@ -922,6 +1140,22 @@ public class SpineFakeTargetSetter : MonoBehaviour
             out sideBoxHalfWidth,
             out sideBoxHalfDepth
         );
+
+        if (ignoreUninitializedWorldZeroRealTargetAtStartup &&
+            !useExternalTargetPosition &&
+            (!hasAppliedFirstValidTarget || startupBasisFramesRemaining > 0) &&
+            realTargetWorld.sqrMagnitude <= startupRealTargetWorldZeroRadius * startupRealTargetWorldZeroRadius &&
+            coreWorld.sqrMagnitude > startupRealTargetWorldZeroRadius * startupRealTargetWorldZeroRadius)
+        {
+            realTargetWorld = LocalPlaneToWorld(
+                safeBoxCenter,
+                coreWorld,
+                sideAxis,
+                forwardAxis,
+                normal,
+                fakeTargetPlaneHeight
+            );
+        }
 
         Vector2 realLocal = WorldToLocalPlane(
             realTargetWorld,
@@ -1132,7 +1366,13 @@ public class SpineFakeTargetSetter : MonoBehaviour
         out Vector3 sideAxis
     )
     {
-        if (useCapturedStaticBasis && hasCapturedBasis)
+        bool mayUseCapturedBasis = useCapturedStaticBasis && hasCapturedBasis;
+        if (useLiveBasisUntilFirstValidTarget && !hasAppliedFirstValidTarget)
+        {
+            mayUseCapturedBasis = false;
+        }
+
+        if (mayUseCapturedBasis)
         {
             coreWorld = basisFollowsCurrentCorePosition && coreNode != null
                 ? coreNode.position
@@ -1606,6 +1846,24 @@ public class SpineFakeTargetSetter : MonoBehaviour
         );
     }
 
+    private void EnsureForwardPoleOffsetIsCoreAnchored()
+    {
+        if (!anchorForwardPoleOffsetToCore || coreNode == null || forwardPoleVector == null)
+        {
+            return;
+        }
+
+        OffsetPositioningNode offsetNode = forwardPoleVector.GetComponent<OffsetPositioningNode>();
+        if (offsetNode == null)
+        {
+            return;
+        }
+
+        // The reference torso keeps this authored through the offset node/prefab wiring.
+        // Do not rewrite its parent here; changing it changes the box basis and torso style.
+        offsetNode.ApplyPosition();
+    }
+
     private void ResolveReferences()
     {
         if (limbSolver == null)
@@ -1616,6 +1874,10 @@ public class SpineFakeTargetSetter : MonoBehaviour
         if (limbSolver != null)
         {
             limbSolver.restoreTailToSolvedEndAfterSolving = restoreSolverTailToSolvedEndAfterSolving;
+            limbSolver.keepVisibleTailAtTargetWhenUsingOverride = !restoreSolverTailToSolvedEndAfterSolving;
+            limbSolver.moveVisibleTailToOverrideTargetAfterSolving = !restoreSolverTailToSolvedEndAfterSolving;
+            limbSolver.preTranslateWhenUsingTailTargetOverride = false;
+            limbSolver.repairStaleCapturedBoneLengths = true;
 
             if (autoUseSolverTailAsFakeTarget && fakeTarget == null && limbSolver.tail != null)
             {
@@ -1636,6 +1898,15 @@ public class SpineFakeTargetSetter : MonoBehaviour
 
             if (fakeTarget != null && useFakeTargetAsSolverTailOverride)
             {
+                if (enforceSetterOwnsFakeTargetTransform)
+                {
+                    limbSolver.writeClampedTailTargetBackToTransform = false;
+                }
+                limbSolver.keepVisibleTailAtTargetWhenUsingOverride = !restoreSolverTailToSolvedEndAfterSolving;
+                limbSolver.moveVisibleTailToOverrideTargetAfterSolving = !restoreSolverTailToSolvedEndAfterSolving;
+                limbSolver.preTranslateWhenUsingTailTargetOverride = false;
+                limbSolver.repairStaleCapturedBoneLengths = true;
+                limbSolver.restoreTailToSolvedEndAfterSolving = restoreSolverTailToSolvedEndAfterSolving;
                 limbSolver.tailTargetOverride = fakeTarget;
             }
             else if (!useFakeTargetAsSolverTailOverride)
@@ -1782,6 +2053,21 @@ public class SpineFakeTargetSetter : MonoBehaviour
         return Mathf.Clamp(Mathf.Max(radius, minAllowed), 0f, maxAllowed);
     }
 
+    private float GetSpecialBoxScale(float maxReach)
+    {
+        if (!scaleManualSpecialBoxesByReach)
+        {
+            return 1f;
+        }
+
+        float reference = authoredReferenceReach > Epsilon
+            ? authoredReferenceReach
+            : Mathf.Max(0.001f, initialFakeTargetDistanceFromCore, manualMaxReach);
+
+        float scale = Mathf.Max(0.001f, maxReach) / Mathf.Max(0.001f, reference);
+        return Mathf.Clamp(scale, minimumSpecialBoxScale, maximumSpecialBoxScale);
+    }
+
     private void GetEffectiveSafeBox(
         float maxReach,
         out Vector2 center,
@@ -1803,14 +2089,15 @@ public class SpineFakeTargetSetter : MonoBehaviour
                 (forwardStart + forwardEnd) * 0.5f
             );
 
-            halfDepth = Mathf.Max(0.0001f, (forwardEnd - forwardStart) * 0.5f);
-            halfWidth = Mathf.Max(0.0001f, maxReach * autoSafeBoxHalfWidthRatio);
+            halfDepth = Mathf.Max(maxReach * 0.04f, 0.025f, (forwardEnd - forwardStart) * 0.5f);
+            halfWidth = Mathf.Max(maxReach * 0.04f, 0.025f, maxReach * autoSafeBoxHalfWidthRatio);
         }
         else
         {
-            center = manualSafeBoxCenter;
-            halfWidth = Mathf.Max(0.0001f, manualSafeBoxHalfWidth);
-            halfDepth = Mathf.Max(0.0001f, manualSafeBoxHalfDepth);
+            float boxScale = GetSpecialBoxScale(maxReach);
+            center = manualSafeBoxCenter * boxScale;
+            halfWidth = Mathf.Max(0.0001f, manualSafeBoxHalfWidth * boxScale);
+            halfDepth = Mathf.Max(0.0001f, manualSafeBoxHalfDepth * boxScale);
         }
     }
 
@@ -1824,9 +2111,10 @@ public class SpineFakeTargetSetter : MonoBehaviour
     )
     {
         float safeFrontEdge = safeCenter.y + safeHalfDepth;
+        float boxScale = GetSpecialBoxScale(GetMaxReach());
 
-        halfDepth = Mathf.Max(0.0001f, frontBoxDepth * 0.5f);
-        halfWidth = Mathf.Max(0.0001f, safeHalfWidth + frontBoxSidePadding);
+        halfDepth = Mathf.Max(0.0001f, frontBoxDepth * boxScale * 0.5f);
+        halfWidth = Mathf.Max(0.0001f, safeHalfWidth + frontBoxSidePadding * boxScale);
 
         center = new Vector2(
             safeCenter.x,
@@ -1846,9 +2134,10 @@ public class SpineFakeTargetSetter : MonoBehaviour
     {
         float safeLeftEdge = safeCenter.x - safeHalfWidth;
         float safeRightEdge = safeCenter.x + safeHalfWidth;
+        float boxScale = GetSpecialBoxScale(GetMaxReach());
 
-        halfWidth = Mathf.Max(0.0001f, sideBoxWidth * 0.5f);
-        halfDepth = Mathf.Max(0.0001f, safeHalfDepth + sideBoxForwardPadding);
+        halfWidth = Mathf.Max(0.0001f, sideBoxWidth * boxScale * 0.5f);
+        halfDepth = Mathf.Max(0.0001f, safeHalfDepth + sideBoxForwardPadding * boxScale);
 
         leftCenter = new Vector2(
             safeLeftEdge - halfWidth,

@@ -24,9 +24,6 @@ public class MammothSpawner : MonoBehaviour
     [SerializeField] private float groundProbeHeight = 40f;
     [SerializeField] private float groundProbeDistance = 120f;
 
-    [Header("Health")]
-    [SerializeField] [Min(1f)] private float maximumRandomHealthMultiplier = 1.85f;
-
     [Header("Safety")]
     [SerializeField] private float validationIntervalSeconds = 2f;
     [SerializeField] private float invalidMammothYThreshold = -30f;
@@ -134,7 +131,7 @@ public class MammothSpawner : MonoBehaviour
             }
 
             ConfigureSpawnSource(mammothSpawnSource);
-            ResetMammothHealth(mammothSpawnSource, false);
+            ResetMammothHealth(mammothSpawnSource);
             mammothSpawnSource.SetActive(false);
         }
 
@@ -393,7 +390,7 @@ public class MammothSpawner : MonoBehaviour
         return false;
     }
 
-    private void ResetMammothHealth(GameObject mammothObject, bool randomizeHealth = true)
+    private void ResetMammothHealth(GameObject mammothObject)
     {
         if (mammothObject == null)
         {
@@ -406,18 +403,7 @@ public class MammothSpawner : MonoBehaviour
             return;
         }
 
-        if (!randomizeHealth)
-        {
-            enemyHealth.ResetToConfiguredMaxHealth(spawnProtectionSeconds);
-            return;
-        }
-
-        int baseHealth = enemyHealth.ConfiguredMaxHealth;
-        int maxRolledHealth = Mathf.Max(baseHealth, Mathf.CeilToInt(baseHealth * Mathf.Max(1f, maximumRandomHealthMultiplier)));
-        int rolledHealth = UnityEngine.Random.Range(baseHealth, maxRolledHealth + 1);
-
-        enemyHealth.SetMaxHealthAndReset(rolledHealth, spawnProtectionSeconds);
-        Debug.Log($"MammothSpawner rolled mammoth health to {rolledHealth} (base {baseHealth}).");
+        enemyHealth.ResetHealthToFull(spawnProtectionSeconds);
     }
 
     private void InitializeSpawnedMammoth(GameObject mammothObject)
@@ -439,7 +425,7 @@ public class MammothSpawner : MonoBehaviour
         MammothSenses senses = mammothObject.GetComponent<MammothSenses>();
         if (senses != null)
         {
-            senses.ResetAwareness();
+            senses.SetTarget(null);
         }
 
         MammothPersonality personality = mammothObject.GetComponent<MammothPersonality>();

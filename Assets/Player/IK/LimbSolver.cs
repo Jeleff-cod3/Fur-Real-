@@ -51,6 +51,39 @@ public class LimbSolver : MonoBehaviour
     [Tooltip("Optional separate IK target. When assigned, the solver reads this transform as the tail target without teleporting the visible tail node before solving.")]
     public Transform tailTargetOverride;
 
+    [Tooltip("Default false for setter-owned fake targets. The solver may clamp the target internally, but it must not write back into tailTargetOverride unless this is explicitly enabled.")]
+    public bool writeClampedTailTargetBackToTransform = false;
+
+    [Tooltip("When a separate target override is used, keep the visible tail node at the clamped override position for the mesh/attachments, while leaving the override transform itself owned by its target setter.")]
+    public bool keepVisibleTailAtTargetWhenUsingOverride = false;
+
+    [Tooltip("With a separate target override, move the visible tail after the chain solve instead of before it. This keeps the solver's intermediate-node placement stable for spine-like limbs while still giving the mesh a valid final endpoint.")]
+    public bool moveVisibleTailToOverrideTargetAfterSolving = false;
+
+    [Tooltip("If true, endpoint pre-translation is allowed even when tailTargetOverride is assigned. Keep this off for the spine: the fake target is already explicit, and pre-translation can make the intermediate nodes knot/teleport around the handle.")]
+    public bool preTranslateWhenUsingTailTargetOverride = false;
+
+    [Tooltip("When captureBoneLengthsOnInitialize is enabled, recapture impossible/stale serialized bone lengths from the current pose. This prevents old serialized 0.1 spine bones from solving a visually 1-unit-per-bone spine as a tiny knot.")]
+    public bool repairStaleCapturedBoneLengths = true;
+
+    [Range(0.05f, 0.95f)]
+    public float staleBoneLengthPoseRatioThreshold = 0.35f;
+
+    [Header("Chain Responsiveness")]
+    [Tooltip("Moves intermediate IK nodes by the same-frame endpoint delta before solving. This prevents small/scaled limbs from visually lagging behind fast start/target motion if a solve frame is late or constrained.")]
+    public bool preTranslateIntermediateNodesByEndpointDelta = true;
+
+    [Range(0f, 1f)]
+    [Tooltip("0 follows the start/root delta, 1 follows the target delta. 0.5 moves the chain by the average endpoint motion before the exact IK solve.")]
+    public float endpointDeltaBlend = 0.5f;
+
+    [Tooltip("Maximum endpoint pre-translation per frame as a fraction of total chain reach. 0 disables the cap.")]
+    [Min(0f)] public float maxEndpointPreTranslateReachFraction = 0.75f;
+
+    private bool hasLastEndpointPositions = false;
+    private Vector3 lastSolvedStartPosition;
+    private Vector3 lastSolvedTargetPosition;
+
     [Header("Debug")]
     public bool debugLogs = false;
     public bool drawDebugLines = false;
@@ -112,10 +145,17 @@ public class LimbSolver : MonoBehaviour
             ChainNodes[i].ClampBendAngles();
         }
 
-        // Store bone vectors.
+        // Store bone vectors. Spine and body chains are fragile if an old serialized
+        // Mylength survives runtime scaling/startup. When capture is enabled, always
+        // validate against the current transform pose before computing the reach.
         for (int i = 0; i < ChainNodes.Count - 1; i++)
         {
             ChainNodes[i].InitializeLengthFromNext(captureBoneLengthsOnInitialize);
+        }
+
+        if (captureBoneLengthsOnInitialize && repairStaleCapturedBoneLengths)
+        {
+            RepairStaleBoneLengthsFromCurrentPose();
         }
 
         double totalLength = 0.0;
@@ -209,15 +249,24 @@ public class LimbSolver : MonoBehaviour
                 enforceMinimumReachOnTail
             );
 
-            if (tailTargetOverride != null)
+            if (tailTargetOverride == null || writeClampedTailTargetBackToTransform)
             {
-                tailTargetOverride.position = targetWorldPosition;
-            }
-            else
-            {
-                tail.transform.position = targetWorldPosition;
+                if (tailTargetOverride != null)
+                {
+                    tailTargetOverride.position = targetWorldPosition;
+                }
+                else
+                {
+                    tail.transform.position = targetWorldPosition;
+                }
             }
         }
+
+        // Do not move the visible tail before the solve when an override is used. The
+        // first solve step already uses targetWorldPosition as its origin; moving the
+        // transform early makes the meshed spine tail participate in the pre-solve state
+        // and can cause visible knots/teleports when the target is high above the core.
+        PreTranslateIntermediateNodesForEndpointMotion(targetWorldPosition);
 
         double targetDistance =
             Vector3.Distance(targetWorldPosition, start.transform.position);
@@ -380,12 +429,143 @@ public class LimbSolver : MonoBehaviour
             return false;
         }
 
-        if (restoreTailToSolvedEndAfterSolving && tail.next != null && tail.next != start)
+        if (tailTargetOverride != null)
+        {
+            if (restoreTailToSolvedEndAfterSolving &&
+                tail.next != null &&
+                tail.next != start)
+            {
+                // Spine-style target overrides are handles, not necessarily visible end
+                // sections. This restores the original curved-body behavior: the fake
+                // target still drives the solve, but the meshed tail returns to the
+                // solved chain end instead of stretching a straight section to the
+                // handle and flattening the bend distribution.
+                tail.transform.position = tail.next.transform.position;
+            }
+            else if (keepVisibleTailAtTargetWhenUsingOverride &&
+                     moveVisibleTailToOverrideTargetAfterSolving &&
+                     tail != null)
+            {
+                // For limbs that explicitly want a visible endpoint at the separate
+                // handle, apply it after intermediate nodes are solved.
+                tail.transform.position = targetWorldPosition;
+            }
+        }
+        else if (restoreTailToSolvedEndAfterSolving &&
+                 tail.next != null &&
+                 tail.next != start)
         {
             tail.transform.position = tail.next.transform.position;
         }
 
+        StoreEndpointPositions(targetWorldPosition);
         return true;
+    }
+
+    private void PreTranslateIntermediateNodesForEndpointMotion(Vector3 targetWorldPosition)
+    {
+        if (!preTranslateIntermediateNodesByEndpointDelta ||
+            (tailTargetOverride != null && !preTranslateWhenUsingTailTargetOverride) ||
+            start == null ||
+            ChainNodes == null ||
+            ChainNodes.Count <= 2)
+        {
+            StoreEndpointPositions(targetWorldPosition);
+            return;
+        }
+
+        if (!hasLastEndpointPositions)
+        {
+            StoreEndpointPositions(targetWorldPosition);
+            return;
+        }
+
+        Vector3 startDelta = start.transform.position - lastSolvedStartPosition;
+        Vector3 targetDelta = targetWorldPosition - lastSolvedTargetPosition;
+        Vector3 blendedDelta = Vector3.Lerp(startDelta, targetDelta, Mathf.Clamp01(endpointDeltaBlend));
+
+        float maxDelta = maxEndpointPreTranslateReachFraction > 0f
+            ? Mathf.Max(0.001f, MaxReach * maxEndpointPreTranslateReachFraction)
+            : 0f;
+
+        if (maxDelta > 0f && blendedDelta.magnitude > maxDelta)
+        {
+            blendedDelta = blendedDelta.normalized * maxDelta;
+        }
+
+        if (blendedDelta.sqrMagnitude <= Epsilon)
+        {
+            return;
+        }
+
+        // ChainNodes order is tail -> intermediate(s) -> start. Do not move the target handle or the root.
+        for (int i = 1; i < ChainNodes.Count - 1; i++)
+        {
+            NodeState node = ChainNodes[i];
+            if (node != null)
+            {
+                node.transform.position += blendedDelta;
+            }
+        }
+    }
+
+    private void RepairStaleBoneLengthsFromCurrentPose()
+    {
+        if (ChainNodes == null || ChainNodes.Count <= 1)
+        {
+            return;
+        }
+
+        double serializedTotal = 0.0;
+        double poseTotal = 0.0;
+
+        for (int i = 0; i < ChainNodes.Count - 1; i++)
+        {
+            NodeState node = ChainNodes[i];
+            if (node == null || node.next == null)
+            {
+                continue;
+            }
+
+            serializedTotal += node.Mylength.magnitude;
+            poseTotal += Vector3.Distance(node.transform.position, node.next.transform.position);
+        }
+
+        if (poseTotal <= Epsilon)
+        {
+            return;
+        }
+
+        float threshold = Mathf.Clamp(staleBoneLengthPoseRatioThreshold, 0.05f, 0.95f);
+        bool tooShort = serializedTotal <= poseTotal * threshold;
+        bool invalid = serializedTotal <= Epsilon;
+
+        if (!tooShort && !invalid)
+        {
+            return;
+        }
+
+        for (int i = 0; i < ChainNodes.Count - 1; i++)
+        {
+            NodeState node = ChainNodes[i];
+            if (node != null)
+            {
+                node.CaptureLengthFromCurrentPose();
+            }
+        }
+    }
+
+    private void StoreEndpointPositions(Vector3 targetWorldPosition)
+    {
+        if (start == null)
+        {
+            hasLastEndpointPositions = false;
+            return;
+        }
+
+        lastSolvedStartPosition = start.transform.position;
+        lastSolvedTargetPosition = targetWorldPosition;
+        hasLastEndpointPositions = true;
     }
 
     public Vector3 ClampWorldPointToReach(Vector3 worldPoint, bool useMinimumReach)

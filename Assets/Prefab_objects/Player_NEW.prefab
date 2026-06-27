@@ -7667,6 +7667,11 @@ MonoBehaviour:
   reachPadding: 0.001
   restoreTailToSolvedEndAfterSolving: 1
   tailTargetOverride: {fileID: 9149178840211054446}
+  writeClampedTailTargetBackToTransform: 0
+  keepVisibleTailAtTargetWhenUsingOverride: 0
+  preTranslateIntermediateNodesByEndpointDelta: 1
+  endpointDeltaBlend: 0.5
+  maxEndpointPreTranslateReachFraction: 0.75
   debugLogs: 0
   drawDebugLines: 0
   debugLineColor: {r: 1, g: 1, b: 1, a: 1}
@@ -7684,6 +7689,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   coreNode: {fileID: 712292549996290239}
   forwardPoleVector: {fileID: 1667304324710795001}
+  anchorForwardPoleOffsetToCore: 0
   realTarget: {fileID: 2183334729128460820}
   fakeTarget: {fileID: 9149178840211054446}
   fakePole: {fileID: 7910686585788132989}

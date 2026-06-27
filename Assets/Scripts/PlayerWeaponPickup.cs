@@ -27,7 +27,7 @@ public class PlayerWeaponPickup : MonoBehaviour
     public void Initialize(Transform holder)
     {
         weaponHolder = holder;
-        EnsurePickupTrigger();
+        EnsureSetup();
     }
 
     private void Update()
@@ -84,6 +84,7 @@ public class PlayerWeaponPickup : MonoBehaviour
 
         equippedWeapon = nearbyWeapon;
         equippedWeapon.PickUp(weaponHolder);
+        proceduralRig?.ApplyCarryPose(ProceduralPlayerRig.CarryPose.OneHandWeapon);
         nearbyWeapon = null;
 
         Debug.Log("Weapon picked up.");
@@ -94,6 +95,7 @@ public class PlayerWeaponPickup : MonoBehaviour
         PickupableWeapon droppedWeapon = equippedWeapon;
         equippedWeapon = null;
         carryController?.ReleaseIfMatches(droppedWeapon);
+        proceduralRig?.ApplyCarryPose(ProceduralPlayerRig.CarryPose.None);
         droppedWeapon.Drop();
 
         Debug.Log("Weapon dropped.");
@@ -119,6 +121,7 @@ public class PlayerWeaponPickup : MonoBehaviour
         PickupableWeapon thrownWeapon = equippedWeapon;
         equippedWeapon = null;
         carryController?.ReleaseIfMatches(thrownWeapon);
+        proceduralRig?.ApplyCarryPose(ProceduralPlayerRig.CarryPose.None);
 
         thrownWeapon.Throw(direction);
     }
@@ -146,6 +149,7 @@ public class PlayerWeaponPickup : MonoBehaviour
 
         equippedWeapon = weapon;
         equippedWeapon.PickUp(weaponHolder);
+        proceduralRig?.ApplyCarryPose(ProceduralPlayerRig.CarryPose.OneHandWeapon);
         nearbyWeapon = null;
         return true;
     }

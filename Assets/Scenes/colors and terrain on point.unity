@@ -501,7 +501,7 @@ PrefabInstance:
       objectReference: {fileID: 1631552744}
     - target: {fileID: 545230956920268159, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: staticOffset.x
-      value: 0.7
+      value: 0.65
       objectReference: {fileID: 0}
     - target: {fileID: 545230956920268159, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: applyInLateUpdate
@@ -513,19 +513,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 780414678868670633, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[0].baseOffset.x
-      value: 0.6
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 780414678868670633, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[1].baseOffset.x
-      value: -0.6
+      value: -1
       objectReference: {fileID: 0}
     - target: {fileID: 780414678868670633, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[2].baseOffset.z
-      value: 0.6
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 780414678868670633, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[3].baseOffset.z
-      value: -0.6
+      value: -1
       objectReference: {fileID: 0}
     - target: {fileID: 975108407074466396, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: nodePairs.Array.size
@@ -549,19 +549,19 @@ PrefabInstance:
       objectReference: {fileID: 1768100514}
     - target: {fileID: 1378996535872430584, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[0].baseOffset.x
-      value: 0.6
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 1378996535872430584, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[1].baseOffset.x
-      value: -0.6
+      value: -1
       objectReference: {fileID: 0}
     - target: {fileID: 1378996535872430584, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[2].baseOffset.z
-      value: 0.6
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 1378996535872430584, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[3].baseOffset.z
-      value: -0.6
+      value: -1
       objectReference: {fileID: 0}
     - target: {fileID: 1602253119370909044, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: useOffsetParentAsRotationCore
@@ -589,19 +589,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2568792670621683431, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[0].baseOffset.x
-      value: 0.6
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2568792670621683431, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[1].baseOffset.x
-      value: -0.6
+      value: -1
       objectReference: {fileID: 0}
     - target: {fileID: 2568792670621683431, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[2].baseOffset.z
-      value: 0.6
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2568792670621683431, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[3].baseOffset.z
-      value: -0.6
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 3882324761333533367, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[0].baseOffset.x
@@ -629,11 +629,11 @@ PrefabInstance:
       objectReference: {fileID: 1654344835}
     - target: {fileID: 4499629268670530863, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: tunedMoveSpeed
-      value: 6
+      value: 4
       objectReference: {fileID: 0}
     - target: {fileID: 4499629268670530863, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: desiredVisualHeight
-      value: 10
+      value: 5
       objectReference: {fileID: 0}
     - target: {fileID: 4499629268670530863, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: autoScaleAuthoredRigToCube
@@ -705,19 +705,19 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 9052419355288937882, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[0].baseOffset.x
-      value: 0.6
+      value: 0.7
       objectReference: {fileID: 0}
     - target: {fileID: 9052419355288937882, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[1].baseOffset.x
-      value: -0.6
+      value: -0.7
       objectReference: {fileID: 0}
     - target: {fileID: 9052419355288937882, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[2].baseOffset.z
-      value: 0.6
+      value: 0.7
       objectReference: {fileID: 0}
     - target: {fileID: 9052419355288937882, guid: e084d23fa1e97474c8c0b88b6d395118, type: 3}
       propertyPath: offsets.Array.data[3].baseOffset.z
-      value: -0.6
+      value: -0.7
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

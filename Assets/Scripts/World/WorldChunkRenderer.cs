@@ -36,24 +36,6 @@ public class WorldChunkRenderer : MonoBehaviour
     public int chunkSize = 50;
     public int viewDistance = 3;
 
-    [Header("Map Border")]
-    public bool createMapBorder = true;
-    [Min(2f)]
-    public float mapBorderInset = 6f;
-    [Min(2f)]
-    public float mapBorderWallHeight = 10f;
-    [Min(0.5f)]
-    public float mapBorderWallThickness = 4f;
-    [Min(0f)]
-    public float mapBorderWallBuriedDepth = 8f;
-    [Min(2)]
-    public int mapBorderSegmentLength = 8;
-    public Material mapBorderWallMaterial;
-    public bool recoverPlayersOutsideMap = true;
-    public float outOfBoundsYThreshold = -8f;
-    [Min(4f)]
-    public float playerRecoveryInset = 18f;
-
     [Header("Arena Settings")]
     public int arenaRadius = 120;
     public int transitionDistance = 40;
@@ -137,10 +119,8 @@ public class WorldChunkRenderer : MonoBehaviour
         new HashSet<Vector2Int>();
 
     private GameObject caveInstance;
-    private GameObject mapBorderRoot;
     private GameObject navMeshBakeRoot;
     private PickupableWeapon cachedFallbackSpearPrefab;
-    private Material cachedRuntimeMapBorderMaterial;
 
     private readonly Dictionary<string, PickupableItem> activeResourceItems =
         new Dictionary<string, PickupableItem>();
@@ -178,7 +158,6 @@ public class WorldChunkRenderer : MonoBehaviour
         BootstrapProgress = 0.08f;
         yield return null;
         GenerateWorld();
-        CreateMapBorder();
 
         BootstrapStatus = "Inspecting terrain...";
         BootstrapProgress = 0.16f;
@@ -280,7 +259,6 @@ public class WorldChunkRenderer : MonoBehaviour
         }
 
         UpdateGroundGrassMaterial();
-        RecoverTrackedPlayersOutsideMap();
     }
 
     public void SetPrimaryPlayer(Transform playerTransform)
@@ -314,6 +292,129 @@ public class WorldChunkRenderer : MonoBehaviour
         }
     }
 
+
+    public void RebuildWorldWithSeed(int newSeed)
+    {
+        seed = newSeed;
+
+        if (Application.isPlaying && isActiveAndEnabled)
+        {
+            StopAllCoroutines();
+            StartCoroutine(RebuildWorldWithSeedRoutine(newSeed));
+            return;
+        }
+
+        RebuildWorldImmediate(newSeed);
+    }
+
+    private System.Collections.IEnumerator RebuildWorldWithSeedRoutine(int newSeed)
+    {
+        seed = newSeed;
+        IsBootstrapComplete = false;
+        BootstrapProgress = 0f;
+        BootstrapStatus = "Rebuilding world...";
+
+        ClearGeneratedWorldObjects();
+        yield return null;
+
+        GenerateWorld();
+        BootstrapProgress = 0.25f;
+        BootstrapStatus = "Repositioning players...";
+        PlacePlayerAtArenaCenter();
+        SyncTrackedPlayerChunks();
+        yield return null;
+
+        BootstrapStatus = "Loading visible chunks...";
+        UpdateVisibleChunks();
+        BootstrapProgress = 0.65f;
+        yield return null;
+
+        BootstrapStatus = "Baking navigation mesh...";
+        BuildWorldNavMesh();
+        yield return null;
+
+        SpawnCave();
+        BootstrapProgress = 1f;
+        BootstrapStatus = "World ready.";
+        IsBootstrapComplete = true;
+    }
+
+    private void RebuildWorldImmediate(int newSeed)
+    {
+        seed = newSeed;
+        IsBootstrapComplete = false;
+        BootstrapProgress = 0f;
+        BootstrapStatus = "Rebuilding world...";
+
+        ClearGeneratedWorldObjects();
+        GenerateWorld();
+        PlacePlayerAtArenaCenter();
+        SyncTrackedPlayerChunks();
+        UpdateVisibleChunks();
+        BuildWorldNavMesh();
+        SpawnCave();
+
+        BootstrapProgress = 1f;
+        BootstrapStatus = "World ready.";
+        IsBootstrapComplete = true;
+    }
+
+    private void ClearGeneratedWorldObjects()
+    {
+        foreach (KeyValuePair<Vector2Int, GameObject> pair in activeChunks)
+        {
+            DestroyRuntimeObject(pair.Value);
+        }
+
+        activeChunks.Clear();
+        currentTrackedPlayerChunks.Clear();
+        trackedPlayerChunkBuffer.Clear();
+
+        if (navMeshBakeRoot != null)
+        {
+            DestroyRuntimeObject(navMeshBakeRoot);
+            navMeshBakeRoot = null;
+        }
+
+        if (caveInstance != null)
+        {
+            DestroyRuntimeObject(caveInstance);
+            caveInstance = null;
+        }
+
+        foreach (KeyValuePair<string, PickupableItem> pair in activeResourceItems)
+        {
+            if (pair.Value != null)
+            {
+                pair.Value.RemovedFromWorldSupply -= HandleResourceRemovedFromWorldSupply;
+                DestroyRuntimeObject(pair.Value.gameObject);
+            }
+        }
+
+        activeResourceItems.Clear();
+        resourceIdsByItem.Clear();
+        removedResourceIds.Clear();
+        resourceIdsToCleanup.Clear();
+        IsNavMeshReady = false;
+    }
+
+    private static void DestroyRuntimeObject(GameObject obj)
+    {
+        if (obj == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            UnityEngine.Object.Destroy(obj);
+        }
+        else
+        {
+            UnityEngine.Object.DestroyImmediate(obj);
+        }
+    }
+
     private void GenerateWorld()
     {
         worldData = WorldDataGenerator.GenerateWorldData(
@@ -329,292 +430,6 @@ public class WorldChunkRenderer : MonoBehaviour
             persistence,
             lacunarity
         );
-    }
-
-    private void CreateMapBorder()
-    {
-        if (mapBorderRoot != null)
-        {
-            Destroy(mapBorderRoot);
-            mapBorderRoot = null;
-        }
-
-        if (!createMapBorder || worldData == null || worldData.size <= 0)
-        {
-            return;
-        }
-
-        mapBorderRoot = new GameObject("Map Border");
-        mapBorderRoot.transform.SetParent(transform, false);
-        mapBorderRoot.transform.localPosition = Vector3.zero;
-        mapBorderRoot.transform.localRotation = Quaternion.identity;
-        mapBorderRoot.transform.localScale = Vector3.one;
-
-        CreateMapBorderSide(mapBorderRoot.transform, "South Border", false, mapBorderInset);
-        CreateMapBorderSide(mapBorderRoot.transform, "North Border", false, worldData.size - mapBorderInset);
-        CreateMapBorderSide(mapBorderRoot.transform, "West Border", true, mapBorderInset);
-        CreateMapBorderSide(mapBorderRoot.transform, "East Border", true, worldData.size - mapBorderInset);
-    }
-
-    private void CreateMapBorderSide(Transform parent, string sideName, bool alongZAxis, float fixedAxisPosition)
-    {
-        if (parent == null || worldData == null)
-        {
-            return;
-        }
-
-        int segmentLength = Mathf.Max(2, mapBorderSegmentLength);
-        float fixedAxis = Mathf.Clamp(fixedAxisPosition, 0f, worldData.size);
-        float halfThickness = Mathf.Max(0.25f, mapBorderWallThickness * 0.5f);
-
-        for (int start = 0; start < worldData.size; start += segmentLength)
-        {
-            int end = Mathf.Min(start + segmentLength, worldData.size);
-            float span = Mathf.Max(0.5f, end - start);
-            float centerAlong = start + span * 0.5f;
-
-            int minX = alongZAxis
-                ? Mathf.RoundToInt(Mathf.Clamp(fixedAxis - halfThickness, 0f, worldData.size))
-                : start;
-            int maxX = alongZAxis
-                ? Mathf.RoundToInt(Mathf.Clamp(fixedAxis + halfThickness, 0f, worldData.size))
-                : end;
-            int minZ = alongZAxis
-                ? start
-                : Mathf.RoundToInt(Mathf.Clamp(fixedAxis - halfThickness, 0f, worldData.size));
-            int maxZ = alongZAxis
-                ? end
-                : Mathf.RoundToInt(Mathf.Clamp(fixedAxis + halfThickness, 0f, worldData.size));
-
-            GetTerrainHeightRange(minX, maxX, minZ, maxZ, out float minHeight, out float maxHeight);
-
-            float bottom = minHeight - Mathf.Max(0f, mapBorderWallBuriedDepth);
-            float top = maxHeight + Mathf.Max(2f, mapBorderWallHeight);
-            Vector3 position = alongZAxis
-                ? new Vector3(fixedAxis, (bottom + top) * 0.5f, centerAlong)
-                : new Vector3(centerAlong, (bottom + top) * 0.5f, fixedAxis);
-            Vector3 scale = alongZAxis
-                ? new Vector3(mapBorderWallThickness, top - bottom, span + 0.25f)
-                : new Vector3(span + 0.25f, top - bottom, mapBorderWallThickness);
-
-            GameObject segment = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            segment.name = $"{sideName} {start}-{end}";
-            segment.layer = LayerMask.NameToLayer("Default");
-            segment.transform.SetParent(parent, false);
-            segment.transform.localPosition = position;
-            segment.transform.localRotation = Quaternion.identity;
-            segment.transform.localScale = scale;
-
-            Renderer renderer = segment.GetComponent<Renderer>();
-            if (renderer != null)
-            {
-                renderer.sharedMaterial = ResolveMapBorderWallMaterial();
-                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.TwoSided;
-                renderer.receiveShadows = true;
-            }
-
-            MarkObjectAsNotWalkable(segment);
-        }
-    }
-
-    private void GetTerrainHeightRange(int minX, int maxX, int minZ, int maxZ, out float minHeight, out float maxHeight)
-    {
-        minHeight = float.MaxValue;
-        maxHeight = float.MinValue;
-
-        if (worldData == null)
-        {
-            minHeight = 0f;
-            maxHeight = 0f;
-            return;
-        }
-
-        int safeMinX = Mathf.Clamp(minX, 0, worldData.size);
-        int safeMaxX = Mathf.Clamp(maxX, 0, worldData.size);
-        int safeMinZ = Mathf.Clamp(minZ, 0, worldData.size);
-        int safeMaxZ = Mathf.Clamp(maxZ, 0, worldData.size);
-
-        for (int z = safeMinZ; z <= safeMaxZ; z++)
-        {
-            for (int x = safeMinX; x <= safeMaxX; x++)
-            {
-                float height = worldData.GetHeight(x, z);
-                if (height < minHeight)
-                {
-                    minHeight = height;
-                }
-
-                if (height > maxHeight)
-                {
-                    maxHeight = height;
-                }
-            }
-        }
-
-        if (minHeight == float.MaxValue || maxHeight == float.MinValue)
-        {
-            float fallback = worldData.GetHeight(safeMinX, safeMinZ);
-            minHeight = fallback;
-            maxHeight = fallback;
-        }
-    }
-
-    private Material ResolveMapBorderWallMaterial()
-    {
-        if (mapBorderWallMaterial != null)
-        {
-            return mapBorderWallMaterial;
-        }
-
-        if (cachedRuntimeMapBorderMaterial != null)
-        {
-            return cachedRuntimeMapBorderMaterial;
-        }
-
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-        if (shader == null)
-        {
-            shader = Shader.Find("Standard");
-        }
-
-        if (shader == null)
-        {
-            shader = Shader.Find("Diffuse");
-        }
-
-        cachedRuntimeMapBorderMaterial = new Material(shader);
-        cachedRuntimeMapBorderMaterial.name = "Runtime Map Border Material";
-
-        Texture2D stripeTexture = BuildMapBorderStripeTexture();
-        if (cachedRuntimeMapBorderMaterial.HasProperty("_BaseMap"))
-        {
-            cachedRuntimeMapBorderMaterial.SetTexture("_BaseMap", stripeTexture);
-            cachedRuntimeMapBorderMaterial.SetColor("_BaseColor", Color.white);
-        }
-
-        if (cachedRuntimeMapBorderMaterial.HasProperty("_MainTex"))
-        {
-            cachedRuntimeMapBorderMaterial.SetTexture("_MainTex", stripeTexture);
-            cachedRuntimeMapBorderMaterial.SetColor("_Color", Color.white);
-        }
-
-        if (cachedRuntimeMapBorderMaterial.HasProperty("_Smoothness"))
-        {
-            cachedRuntimeMapBorderMaterial.SetFloat("_Smoothness", 0.08f);
-        }
-
-        if (cachedRuntimeMapBorderMaterial.HasProperty("_Metallic"))
-        {
-            cachedRuntimeMapBorderMaterial.SetFloat("_Metallic", 0.02f);
-        }
-
-        cachedRuntimeMapBorderMaterial.mainTextureScale = new Vector2(4f, 1f);
-        return cachedRuntimeMapBorderMaterial;
-    }
-
-    private static Texture2D BuildMapBorderStripeTexture()
-    {
-        Texture2D texture = new Texture2D(8, 8, TextureFormat.RGBA32, false);
-        Color dark = new Color(0.12f, 0.10f, 0.08f, 1f);
-        Color bright = new Color(0.84f, 0.64f, 0.18f, 1f);
-
-        for (int y = 0; y < texture.height; y++)
-        {
-            for (int x = 0; x < texture.width; x++)
-            {
-                bool brightStripe = ((x + y) % 6) < 3;
-                texture.SetPixel(x, y, brightStripe ? bright : dark);
-            }
-        }
-
-        texture.wrapMode = TextureWrapMode.Repeat;
-        texture.filterMode = FilterMode.Point;
-        texture.Apply();
-        return texture;
-    }
-
-    private void RecoverTrackedPlayersOutsideMap()
-    {
-        if (!recoverPlayersOutsideMap || worldData == null)
-        {
-            return;
-        }
-
-        RecoverPlayerIfOutsideMap(player);
-
-        foreach (Transform trackedPlayer in trackedPlayers)
-        {
-            if (trackedPlayer == null || trackedPlayer == player)
-            {
-                continue;
-            }
-
-            RecoverPlayerIfOutsideMap(trackedPlayer);
-        }
-    }
-
-    private void RecoverPlayerIfOutsideMap(Transform playerTransform)
-    {
-        if (playerTransform == null)
-        {
-            return;
-        }
-
-        Vector3 position = playerTransform.position;
-        float safeInset = Mathf.Clamp(playerRecoveryInset, 2f, Mathf.Max(2f, worldData.size * 0.5f - 1f));
-        bool outsideHorizontalBounds =
-            position.x < safeInset ||
-            position.x > worldData.size - safeInset ||
-            position.z < safeInset ||
-            position.z > worldData.size - safeInset;
-        bool belowWorld = position.y < outOfBoundsYThreshold;
-
-        if (!outsideHorizontalBounds && !belowWorld)
-        {
-            return;
-        }
-
-        Vector3 recoveryCandidate = new Vector3(
-            Mathf.Clamp(position.x, safeInset, worldData.size - safeInset),
-            position.y,
-            Mathf.Clamp(position.z, safeInset, worldData.size - safeInset)
-        );
-
-        Vector3 recoveryPosition = GetArenaCenterWorldPosition(1f);
-        bool foundRecovery = false;
-
-        if (TryGetGroundHeightAtWorldPosition(recoveryCandidate, out float groundHeight))
-        {
-            recoveryPosition = new Vector3(recoveryCandidate.x, groundHeight + 1f, recoveryCandidate.z);
-            foundRecovery = true;
-        }
-
-        if (IsNavMeshReady && NavMesh.SamplePosition(recoveryPosition, out NavMeshHit hit, 24f, NavMesh.AllAreas))
-        {
-            recoveryPosition = hit.position + Vector3.up * 0.1f;
-            foundRecovery = true;
-        }
-
-        if (!foundRecovery)
-        {
-            recoveryPosition = GetArenaCenterWorldPosition(1f);
-        }
-
-        Rigidbody body = playerTransform.GetComponent<Rigidbody>();
-        if (body != null)
-        {
-            body.linearVelocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.position = recoveryPosition;
-        }
-
-        NavMeshAgent agent = playerTransform.GetComponent<NavMeshAgent>();
-        if (agent != null && agent.enabled)
-        {
-            agent.Warp(recoveryPosition);
-        }
-
-        playerTransform.position = recoveryPosition;
     }
 
     private System.Collections.IEnumerator RenderAllChunksForNavMeshBakeRoutine()
@@ -983,8 +798,6 @@ public class WorldChunkRenderer : MonoBehaviour
             chunkSize,
             initialNavMeshTerrainSampleStep
         );
-
-        CreateNavMeshBlockersForChunk(chunkObject, startX, startZ);
     }
 
     private void MarkObjectAsNotWalkable(GameObject obj)
@@ -1003,85 +816,6 @@ public class WorldChunkRenderer : MonoBehaviour
         {
             modifier.area = 1;
         }
-    }
-
-    private void CreateNavMeshBlockersForChunk(GameObject chunkObject, int startX, int startZ)
-    {
-        if (chunkObject == null)
-        {
-            return;
-        }
-
-        if (treesBlockNavigation && treeSettings != null && treeSettings.enabled)
-        {
-            TreeChunkMeshes treeMeshes = TreeChunkGenerator.GenerateTreeMeshes(
-                worldData,
-                startX,
-                startZ,
-                chunkSize,
-                seed,
-                treeSettings
-            );
-            CreateNavMeshBlockerObject(chunkObject.transform, "Bake Trees", treeMeshes.treeMesh);
-        }
-
-        if (treesBlockNavigation && resourceForestTreeSettings != null && resourceForestTreeSettings.enabled)
-        {
-            ResourceForestTreeChunkMeshes resourceMeshes = ResourceForestTreeChunkGenerator.GenerateTrees(
-                worldData,
-                startX,
-                startZ,
-                chunkSize,
-                seed,
-                resourceForestTreeSettings
-            );
-            CreateNavMeshBlockerObject(chunkObject.transform, "Bake ResourceForestTrees", resourceMeshes.treeMesh);
-        }
-
-        if (rocksBlockNavigation && rockSettings != null && rockSettings.enabled)
-        {
-            RockChunkMeshes rockMeshes = RockChunkGenerator.GenerateRockMeshes(
-                worldData,
-                startX,
-                startZ,
-                chunkSize,
-                seed,
-                rockSettings
-            );
-            CreateNavMeshBlockerObject(chunkObject.transform, "Bake Rocks", rockMeshes.rockMesh);
-        }
-
-        if (deadTreesBlockNavigation && deadTreeSettings != null && deadTreeSettings.enabled)
-        {
-            DeadTreeChunkMeshes deadTreeMeshes = DeadTreeChunkGenerator.GenerateDeadTreeMeshes(
-                worldData,
-                startX,
-                startZ,
-                chunkSize,
-                seed,
-                deadTreeSettings
-            );
-            CreateNavMeshBlockerObject(chunkObject.transform, "Bake DeadTrees", deadTreeMeshes.deadTreeMesh);
-        }
-    }
-
-    private void CreateNavMeshBlockerObject(Transform parent, string name, Mesh blockerMesh)
-    {
-        if (parent == null || blockerMesh == null || blockerMesh.vertexCount <= 0)
-        {
-            return;
-        }
-
-        GameObject blockerObject = new GameObject(name);
-        blockerObject.layer = LayerMask.NameToLayer("Default");
-        blockerObject.transform.SetParent(parent, false);
-        blockerObject.transform.localPosition = Vector3.zero;
-        blockerObject.transform.localRotation = Quaternion.identity;
-        blockerObject.transform.localScale = Vector3.one;
-
-        MeshCollider blockerCollider = blockerObject.AddComponent<MeshCollider>();
-        blockerCollider.sharedMesh = blockerMesh;
-        MarkObjectAsNotWalkable(blockerObject);
     }
 
     private void UpdateGroundGrassMaterial()

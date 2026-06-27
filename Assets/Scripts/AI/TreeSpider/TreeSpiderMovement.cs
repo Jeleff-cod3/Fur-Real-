@@ -38,10 +38,6 @@ public class TreeSpiderMovement : MonoBehaviour
         if (agent != null)
         {
             agent.updateRotation = false;
-            agent.autoRepath = true;
-            agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
-            agent.radius = Mathf.Max(agent.radius, 0.24f);
-            agent.height = Mathf.Max(agent.height, 0.58f);
         }
     }
 

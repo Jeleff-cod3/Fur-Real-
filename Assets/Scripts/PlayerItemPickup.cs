@@ -101,6 +101,7 @@ public class PlayerItemPickup : MonoBehaviour
 
         heldItem = item;
         heldItem.PickUp(itemHolder);
+        proceduralRig?.ApplyCarryPose(ProceduralPlayerRig.CarryPose.TwoHandItem);
         nearbyItems.Remove(item);
     }
 
@@ -115,6 +116,7 @@ public class PlayerItemPickup : MonoBehaviour
         PickupableItem itemToDrop = heldItem;
         heldItem = null;
         carryController?.ReleaseIfMatches(itemToDrop);
+        proceduralRig?.ApplyCarryPose(ProceduralPlayerRig.CarryPose.None);
         itemToDrop.Drop(dropPosition, dropRotation);
     }
 

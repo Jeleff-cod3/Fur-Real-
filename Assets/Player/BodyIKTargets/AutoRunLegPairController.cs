@@ -692,6 +692,12 @@ public class AutoRunLegPairController : MonoBehaviour
     [Tooltip("When fake lag exceeds its cap, close the excess at this many reaches per second instead of snapping.")]
     [Min(0f)] public float fakeTargetLagCatchupReachPerSecond = 10.0f;
 
+    [Tooltip("Small characters have tiny reaches, so reach-per-second catchup can become too slow in world units. This adds current body speed as a catchup floor without snapping.")]
+    [Min(0f)] public float fakeTargetLagCatchupCoreSpeedMultiplier = 1.35f;
+
+    [Tooltip("When true, active swing endpoints are treated as committed positions and are not reclamped backward by the current moving hip; landing reach is validated before the step starts.")]
+    public bool preserveCommittedSwingEndpointDuringStep = true;
+
     [Tooltip("During an actual step, write the generated arc directly. Disable to keep the visible IK handle smooth while the real target steps deterministically.")]
     public bool snapFakeTargetDuringActiveSteps = true;
 
@@ -2692,6 +2698,23 @@ public class AutoRunLegPairController : MonoBehaviour
         leftLeg.lowerLegLength *= scale;
         rightLeg.upperLegLength *= scale;
         rightLeg.lowerLegLength *= scale;
+
+        // Smaller rigs have less reach, so the same world movement consumes a larger fraction
+        // of leg range. Keep the authored rhythm, but make target settlement/catchup stricter
+        // as scale goes down so IK handles do not visually fall behind.
+        if (scale < 0.999f)
+        {
+            float inverseScale = 1f / Mathf.Max(0.25f, scale);
+            legFakeTargetFrequencyHz = Mathf.Max(legFakeTargetFrequencyHz, 16f * Mathf.Sqrt(inverseScale));
+            legFakeTargetSpeedFrequencyBoostHz = Mathf.Max(legFakeTargetSpeedFrequencyBoostHz, 14f * Mathf.Sqrt(inverseScale));
+            fakeTargetLagCatchupReachPerSecond = Mathf.Max(fakeTargetLagCatchupReachPerSecond, 16f * inverseScale);
+            fakeTargetLagCatchupCoreSpeedMultiplier = Mathf.Max(fakeTargetLagCatchupCoreSpeedMultiplier, 2.8f);
+            dynamicLegFakeTargetSpeedMultiplier = Mathf.Max(dynamicLegFakeTargetSpeedMultiplier, 8.5f * Mathf.Sqrt(inverseScale));
+            dynamicLegFakeTargetAccelerationMultiplier = Mathf.Max(dynamicLegFakeTargetAccelerationMultiplier, 28f * Mathf.Sqrt(inverseScale));
+            maxFakeTargetLagReachRatio = Mathf.Min(maxFakeTargetLagReachRatio, 0.11f);
+            stableFastStepCadence = Mathf.Max(0.18f, stableFastStepCadence / Mathf.Sqrt(inverseScale));
+            stableSlowStepCadence = Mathf.Max(0.26f, stableSlowStepCadence / Mathf.Sqrt(inverseScale));
+        }
     }
 
     private void UpdateAirbornePose(float dt)
@@ -4837,7 +4860,78 @@ public class AutoRunLegPairController : MonoBehaviour
             }
         }
 
+        EnsureMainGaitPairContainsLowerBodyNodes(explicitCore, pole);
         DisableDuplicateLowerBodyRotationPairs(explicitCore, pole);
+    }
+
+    private void EnsureMainGaitPairContainsLowerBodyNodes(Transform explicitCore, Transform pole)
+    {
+        if (gaitRotationAssigner == null || gaitRotationAssigner.nodePairs == null || gaitRotationAssigner.nodePairs.Length == 0)
+        {
+            return;
+        }
+
+        RotatableNodePair mainPair = null;
+        for (int i = 0; i < gaitRotationAssigner.nodePairs.Length; i++)
+        {
+            if (gaitRotationAssigner.nodePairs[i] != null && gaitRotationAssigner.nodePairs[i].isActiveAndEnabled)
+            {
+                mainPair = gaitRotationAssigner.nodePairs[i];
+                break;
+            }
+        }
+
+        if (mainPair == null)
+        {
+            mainPair = gaitRotationAssigner.nodePairs[0];
+        }
+
+        if (mainPair == null)
+        {
+            return;
+        }
+
+        List<RotatableNode> merged = new List<RotatableNode>();
+        if (mainPair.nodes != null)
+        {
+            for (int i = 0; i < mainPair.nodes.Length; i++)
+            {
+                if (mainPair.nodes[i] != null && !merged.Contains(mainPair.nodes[i]))
+                {
+                    merged.Add(mainPair.nodes[i]);
+                }
+            }
+        }
+
+        AddLowerBodyRotatableNode(merged, GetLegStartTransform(leftLeg));
+        AddLowerBodyRotatableNode(merged, GetLegStartTransform(rightLeg));
+        AddLowerBodyRotatableNode(merged, leftLeg != null ? leftLeg.staticPole : null);
+        AddLowerBodyRotatableNode(merged, rightLeg != null ? rightLeg.staticPole : null);
+
+        mainPair.nodes = merged.ToArray();
+        mainPair.coreNode = explicitCore;
+        mainPair.poleVector = pole;
+        mainPair.pushSettingsOnAwake = false;
+        mainPair.reinitializeNodesOnStart = false;
+
+        for (int i = 0; i < mainPair.nodes.Length; i++)
+        {
+            ConfigureLowerBodyRotatableNode(mainPair.nodes[i], explicitCore, pole);
+        }
+    }
+
+    private void AddLowerBodyRotatableNode(List<RotatableNode> nodes, Transform target)
+    {
+        if (nodes == null || target == null)
+        {
+            return;
+        }
+
+        RotatableNode node = target.GetComponent<RotatableNode>();
+        if (node != null && !nodes.Contains(node))
+        {
+            nodes.Add(node);
+        }
     }
 
     private void DisableDirectRotationAssignersThatFightGait()
@@ -5119,6 +5213,10 @@ public class AutoRunLegPairController : MonoBehaviour
 
         HardApplyOffsetNodeYaw(leftStart, coreNode, yaw, 1);
         HardApplyOffsetNodeYaw(rightStart, coreNode, yaw, 1);
+
+        // Pole offset nodes are authored relative to the leg starts. Re-read the start positions
+        // after applying their yaw before evaluating pole dynamic offsets so the lower-body
+        // dependency order cannot leave poles/hips one frame apart.
         HardApplyOffsetNodeYaw(leftLeg != null ? leftLeg.staticPole : null, leftStart, yaw, 1);
         HardApplyOffsetNodeYaw(rightLeg != null ? rightLeg.staticPole : null, rightStart, yaw, 1);
     }
@@ -5617,7 +5715,7 @@ public class AutoRunLegPairController : MonoBehaviour
 
         // If this is an active swing and the caller explicitly preserved the planned forward
         // arc, do not let the lazy filter's final reach clamp undo that preservation.
-        if (!clampToCurrentReach && allowActiveSwingTargetPastCurrentReach)
+        if (!clampToCurrentReach && allowActiveSwingTargetPastCurrentReach && preserveCommittedSwingEndpointDuringStep)
         {
             outputWorldPosition = targetWorldPosition;
             ResetLegFakeTargetFilter(leg, outputWorldPosition);
@@ -5748,9 +5846,11 @@ public class AutoRunLegPairController : MonoBehaviour
         }
 
         Vector3 cappedPosition = desired - lag.normalized * maxLag;
-        float catchupDistance = Mathf.Max(0.001f, GetUsableLegReach(leg)) *
-                                Mathf.Max(0f, fakeTargetLagCatchupReachPerSecond) *
-                                dt;
+        float reachBasedCatchup = Mathf.Max(0.001f, GetUsableLegReach(leg)) *
+                                   Mathf.Max(0f, fakeTargetLagCatchupReachPerSecond);
+        float speedBasedCatchup = Mathf.Max(0f, currentCoreVelocity.magnitude) *
+                                  Mathf.Max(0f, fakeTargetLagCatchupCoreSpeedMultiplier);
+        float catchupDistance = Mathf.Max(reachBasedCatchup, speedBasedCatchup) * dt;
 
         return Vector3.MoveTowards(current, cappedPosition, catchupDistance);
     }
